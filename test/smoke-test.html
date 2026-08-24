@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>QuickFix smoke test</title></head>
+<body>
+<!--
+  Runs content/content.js in this page against a stubbed chrome.* API, so the
+  capture → replace logic can be exercised without a browser extension context,
+  an API key, or a network call. This is the test to run after touching
+  content.js.
+
+    & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
+      --disable-gpu --no-first-run --user-data-dir="$env:TEMP\qf-edge" `
+      --allow-file-access-from-files --virtual-time-budget=15000 --dump-dom `
+      "file:///C:/Users/albadinm/quickfix-extension/test/smoke-test.html"
+
+  ...or open it in a browser and read the results.
+-->
+<style>
+  body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px; }
+  #out { font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap;
+         background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; }
+  .fixture { position: absolute; left: -9999px; top: 0; width: 400px; }
+</style>
+
+<h1>QuickFix smoke test</h1>
+<pre id="out">running…</pre>
+
+<div class="fixture" id="fixtures">
+  <textarea id="ta">we was hoping you could took a look</textarea>
+  <input type="text" id="inp" value="pls advise asap" />
+  <div id="ce" contenteditable="true"><span id="reply">Thanks for you're email.</span><div id="quoted">QUOTED THREAD — must not change</div></div>
+  <div id="shadowHost"></div>
+</div>
+
+<script>
+/* ----------------------------------------------------------- chrome stub */
+
+const listeners = [];
+window.__reply = { ok: true, text: 'REWRITTEN' };
+window.__replyDelay = 0;
+window.__lastSent = null;
+
+window.chrome = {
+  runtime: {
+    id: 'smoke-test',
+    onMessage: { addListener: (fn) => listeners.push(fn) },
+    sendMessage: (msg) =>
+      new Promise((resolve) => {
+        window.__lastSent = msg;
+        setTimeout(() => resolve(window.__reply), window.__replyDelay);
+      })
+  },
+  storage: {
+    local: { get: () => Promise.resolve({}) },
+    onChanged: { addListener: () => {} }
+  }
+};
+
+/* ---------------------------------------------------- load content script */
+
+const src = (() => {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', '../content/content.js', false);
+  xhr.send(null);
+  return xhr.responseText;
+})();
+new Function(src)();
+
+/* ------------------------------------------------------------- test rig */
+
+const results = [];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function check(name, pass, detail) {
+  results.push(`${pass ? 'PASS' : 'FAIL'}  ${name}${pass || !detail ? '' : '\n        ' + detail}`);
+}
+
+/** Deliver an action the way the background worker would. */
+function invoke(action) {
+  for (const fn of listeners) fn({ type: 'QF_RUN', action, source: 'menu' }, {}, () => {});
+}
+
+const $ = (id) => document.getElementById(id);
+
+function selectIn(node, start, end) {
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return range;
+}
+
+/* ----------------------------------------------------------------- tests */
+
+async function main() {
+  // 1 — textarea with no selection rewrites the whole field.
+  const ta = $('ta');
+  ta.focus();
+  ta.setSelectionRange(0, 0);
+  window.__reply = { ok: true, text: 'We were hoping you could take a look' };
+  invoke('grammar');
+  await wait(150);
+  check('textarea, no selection → whole field rewritten',
+    ta.value === 'We were hoping you could take a look', `value = ${JSON.stringify(ta.value)}`);
+  check('textarea → only the selected text was sent',
+    window.__lastSent?.text === 'we was hoping you could took a look',
+    `sent = ${JSON.stringify(window.__lastSent?.text)}`);
+
+  // 2 — partial selection in a textarea leaves the rest alone.
+  ta.value = 'keep this. fix this bit. keep this too.';
+  ta.focus();
+  ta.setSelectionRange(11, 23); // "fix this bit"
+  window.__reply = { ok: true, text: 'FIXED' };
+  invoke('grammar');
+  await wait(150);
+  check('textarea, partial selection → surrounding text untouched',
+    ta.value === 'keep this. FIXED. keep this too.', `value = ${JSON.stringify(ta.value)}`);
+
+  // 3 — single-line input must never receive a newline.
+  const inp = $('inp');
+  inp.focus();
+  inp.setSelectionRange(0, inp.value.length);
+  window.__reply = { ok: true, text: 'first line\nsecond line' };
+  invoke('grammar');
+  await wait(150);
+  check('input → newlines collapsed to spaces',
+    inp.value === 'first line second line', `value = ${JSON.stringify(inp.value)}`);
+
+  // 4 — leading/trailing whitespace in the selection is preserved.
+  ta.value = 'alpha  beta  gamma';
+  ta.focus();
+  ta.setSelectionRange(5, 13); // "  beta  " with the spaces either side
+  window.__reply = { ok: true, text: 'BETA' };
+  invoke('grammar');
+  await wait(150);
+  check('whitespace around the selection is preserved',
+    ta.value === 'alpha  BETA  gamma', `value = ${JSON.stringify(ta.value)}`);
+  check('whitespace was trimmed before sending',
+    window.__lastSent?.text === 'beta', `sent = ${JSON.stringify(window.__lastSent?.text)}`);
+
+  // 5 — contenteditable: replace the selection, leave the quoted thread alone.
+  const reply = $('reply').firstChild;
+  $('ce').focus();
+  selectIn(reply, 0, reply.length);
+  window.__reply = { ok: true, text: 'Thank you for your email.' };
+  invoke('grammar');
+  await wait(150);
+  check('contenteditable → selection replaced',
+    $('ce').textContent.includes('Thank you for your email.'),
+    `text = ${JSON.stringify($('ce').textContent)}`);
+  check('contenteditable → quoted thread untouched',
+    $('quoted').textContent === 'QUOTED THREAD — must not change');
+  check('contenteditable → only the selection was sent',
+    window.__lastSent?.text === "Thanks for you're email.",
+    `sent = ${JSON.stringify(window.__lastSent?.text)}`);
+
+  // 6 — no selection in a contenteditable must NOT grab the whole box.
+  getSelection().removeAllRanges();
+  $('ce').focus();
+  const ceBefore = $('ce').textContent;
+  window.__lastSent = null;
+  window.__reply = { ok: true, text: 'SHOULD NOT APPEAR' };
+  invoke('grammar');
+  await wait(150);
+  check('contenteditable, no selection → nothing sent, nothing changed',
+    window.__lastSent === null && $('ce').textContent === ceBefore,
+    `sent = ${JSON.stringify(window.__lastSent)}`);
+
+  // 7 — the field changing mid-flight aborts the replacement.
+  ta.value = 'original text here';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  window.__replyDelay = 250;
+  window.__reply = { ok: true, text: 'STALE WRITE' };
+  invoke('grammar');
+  await wait(60);
+  ta.value = 'user typed something else';   // simulate the user carrying on
+  await wait(400);
+  window.__replyDelay = 0;
+  check('stale target → replacement refused',
+    ta.value === 'user typed something else', `value = ${JSON.stringify(ta.value)}`);
+
+  // 8 — API errors surface instead of writing junk into the field.
+  ta.value = 'unchanged on error';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  window.__reply = { ok: false, code: 'RATE_LIMIT', error: 'Gemini rate limit hit.' };
+  invoke('grammar');
+  await wait(150);
+  check('API error → field untouched',
+    ta.value === 'unchanged on error', `value = ${JSON.stringify(ta.value)}`);
+  const shadowHost = document.querySelector('[data-quickfix]');
+  const toastText = shadowHost?.shadowRoot?.textContent || '';
+  check('API error → message shown to the user',
+    toastText.includes('rate limit'), `toast = ${JSON.stringify(toastText)}`);
+
+  // 9 — floating toolbar appears for an editable selection.
+  window.__reply = { ok: true, text: 'x' };
+  const q = $('quoted').firstChild;
+  $('ce').focus();
+  selectIn(q, 0, 6);
+  $('ce').dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+  await wait(400);
+  const bar = document.querySelector('[data-quickfix]')?.shadowRoot?.querySelector('.bar');
+  check('floating toolbar shown on editable selection', !!bar);
+  check('toolbar offers both actions',
+    !!bar && /Fix grammar/.test(bar.textContent) && /Translate/.test(bar.textContent),
+    `toolbar = ${JSON.stringify(bar?.textContent)}`);
+
+  // 10 — read-only selection is never written to, result offered for copy.
+  getSelection().removeAllRanges();
+  const ro = document.createElement('p');
+  ro.textContent = 'plain page text, not editable';
+  document.getElementById('fixtures').appendChild(ro);
+  selectIn(ro.firstChild, 0, ro.firstChild.length);
+  window.__reply = { ok: true, text: 'TRANSLATED' };
+  invoke('translate');
+  await wait(200);
+  const panel = document.querySelector('[data-quickfix]')?.shadowRoot?.querySelector('.panel');
+  check('read-only selection → page text not modified',
+    ro.textContent === 'plain page text, not editable');
+  check('read-only selection → result offered in a panel',
+    !!panel && panel.textContent.includes('TRANSLATED'),
+    `panel = ${JSON.stringify(panel?.textContent)}`);
+
+  const failed = results.filter((r) => r.startsWith('FAIL')).length;
+  document.getElementById('out').textContent =
+    results.join('\n') + `\n\n${results.length - failed}/${results.length} passed` +
+    (failed ? `  — ${failed} FAILED` : '  — all good');
+  document.title = failed ? `FAILED ${failed}` : 'ALL PASS';
+}
+
+main().catch((err) => {
+  document.getElementById('out').textContent =
+    'harness crashed: ' + err.message + '\n' + err.stack + '\n\n' + results.join('\n');
+  document.title = 'HARNESS CRASH';
+});
+</script>
+</body>
+</html>

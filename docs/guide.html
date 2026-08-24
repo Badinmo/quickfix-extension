@@ -1,0 +1,1068 @@
+<title>QuickFix Quickstart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #FBFAF8;
+    --surface: #FFFFFF;
+    --surface-alt: #F2EFFC;
+    --line: #E5E1F0;
+    --ink: #1E1B2E;
+    --ink-muted: #655F78;
+    --accent: #4F46E5;
+    --accent-strong: #372F9E;
+    --accent-ink: #FFFFFF;
+    --ok: #157F3C;
+    --ok-bg: #EAF8EF;
+    --ok-line: #BFE8CE;
+    --warn: #9A5B0A;
+    --warn-bg: #FDF3E4;
+    --warn-line: #F0D6A6;
+    --danger: #B91C1C;
+    --danger-bg: #FDEDEC;
+    --danger-line: #F3C4C0;
+    --shadow: 0 1px 2px rgba(30,27,46,.04), 0 8px 24px rgba(30,27,46,.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131220;
+      --surface: #1B1A2C;
+      --surface-alt: #221F3A;
+      --line: #332F4E;
+      --ink: #F1EEFA;
+      --ink-muted: #A9A3C6;
+      --accent: #9089FF;
+      --accent-strong: #C2BCFF;
+      --accent-ink: #1B1730;
+      --ok: #4ADE80;
+      --ok-bg: #10281B;
+      --ok-line: #1E4A30;
+      --warn: #FBBF24;
+      --warn-bg: #2B2210;
+      --warn-line: #4A3B16;
+      --danger: #F87171;
+      --danger-bg: #301415;
+      --danger-line: #4E2224;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #131220;
+    --surface: #1B1A2C;
+    --surface-alt: #221F3A;
+    --line: #332F4E;
+    --ink: #F1EEFA;
+    --ink-muted: #A9A3C6;
+    --accent: #9089FF;
+    --accent-strong: #C2BCFF;
+    --accent-ink: #1B1730;
+    --ok: #4ADE80;
+    --ok-bg: #10281B;
+    --ok-line: #1E4A30;
+    --warn: #FBBF24;
+    --warn-bg: #2B2210;
+    --warn-line: #4A3B16;
+    --danger: #F87171;
+    --danger-bg: #301415;
+    --danger-line: #4E2224;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 16px/1.6 "Source Sans 3", -apple-system, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 {
+    font-family: "Manrope", -apple-system, "Segoe UI", system-ui, sans-serif;
+    text-wrap: balance;
+    line-height: 1.2;
+    margin: 0;
+  }
+
+  a { color: var(--accent-strong); }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* -------------------------------------------------------------- header */
+
+  header.hero {
+    padding: 56px 24px 34px;
+    text-align: left;
+  }
+  header.hero .inner { max-width: 760px; margin: 0 auto; }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: 700 12px/1 "Source Sans 3", sans-serif;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+    margin-bottom: 14px;
+  }
+  .eyebrow .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+  }
+
+  h1.title { font-size: clamp(30px, 5vw, 40px); font-weight: 800; letter-spacing: -.01em; }
+
+  .subtitle {
+    margin-top: 10px;
+    max-width: 58ch;
+    color: var(--ink-muted);
+    font-size: 17px;
+  }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 22px;
+  }
+  .fact {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-muted);
+  }
+  .fact svg { width: 14px; height: 14px; stroke: var(--accent); flex: none; }
+
+  /* ---------------------------------------------------------------- nav */
+
+  nav.jump {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav.jump .row {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 12px 24px;
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  nav.jump .row::-webkit-scrollbar { display: none; }
+  nav.jump a {
+    flex: none;
+    text-decoration: none;
+    color: var(--ink-muted);
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+  nav.jump a:hover { background: var(--surface-alt); color: var(--ink); }
+
+  /* ------------------------------------------------------------- parts */
+
+  section.part { padding-top: 52px; scroll-margin-top: 62px; }
+  section.part:first-of-type { padding-top: 40px; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 6px;
+  }
+  .part-letter {
+    font-family: "Manrope", sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--accent-ink);
+    background: var(--accent);
+    width: 30px; height: 30px;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    flex: none;
+  }
+  h2.part-title { font-size: 22px; font-weight: 800; letter-spacing: -.005em; }
+  .part-sub {
+    margin: 10px 0 26px 44px;
+    color: var(--ink-muted);
+    font-size: 15px;
+    max-width: 60ch;
+  }
+
+  ol.steps {
+    list-style: none;
+    margin: 0 0 0 44px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  li.step {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .step-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--ink-muted);
+    background: var(--surface-alt);
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-body p { margin: 0; }
+  .step-body p.step-detail {
+    margin-top: 6px;
+    color: var(--ink-muted);
+    font-size: 14.5px;
+  }
+  .step-body strong { font-weight: 700; }
+
+  code.inline, .path {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .88em;
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
+    padding: 1px 6px;
+    border-radius: 5px;
+    word-break: break-all;
+  }
+
+  .kbd {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .82em;
+    font-weight: 600;
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    padding: 1px 7px 2px;
+    border-radius: 6px;
+    color: var(--ink);
+  }
+
+  .copyrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  button.copy {
+    font: 600 12.5px "Source Sans 3", sans-serif;
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    padding: 6px 11px;
+    border-radius: 7px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  button.copy:hover { border-color: var(--accent); color: var(--accent-strong); }
+  button.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.copy svg { width: 13px; height: 13px; }
+
+  /* ------------------------------------------------------------ callouts */
+
+  .callout {
+    margin: 16px 0 0 44px;
+    border-radius: 12px;
+    border: 1px solid;
+    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 12px;
+    font-size: 14.5px;
+  }
+  .callout svg { width: 20px; height: 20px; margin-top: 1px; }
+  .callout .head {
+    font-weight: 700;
+    font-size: 12.5px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: 3px;
+    display: block;
+  }
+  .callout p { margin: 0; }
+  .callout.tip { background: var(--surface-alt); border-color: var(--line); color: var(--ink); }
+  .callout.tip svg { stroke: var(--accent); }
+  .callout.tip .head { color: var(--accent-strong); }
+  .callout.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--ink); }
+  .callout.warn svg { stroke: var(--warn); }
+  .callout.warn .head { color: var(--warn); }
+  .callout.ok { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ink); }
+  .callout.ok svg { stroke: var(--ok); }
+  .callout.ok .head { color: var(--ok); }
+
+  /* ------------------------------------------------------------- tables */
+
+  .tablewrap {
+    margin: 0 0 0 44px;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; padding: 12px 16px; vertical-align: top; }
+  thead th {
+    font-family: "Manrope", sans-serif;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--ink-muted);
+    background: var(--surface-alt);
+    border-bottom: 1px solid var(--line);
+  }
+  tbody tr + tr td { border-top: 1px solid var(--line); }
+  tbody td:first-child { white-space: nowrap; font-weight: 600; }
+
+  /* ------------------------------------------------------------ divider */
+
+  hr.rule {
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 52px 0 0 0;
+  }
+
+  footer {
+    margin: 56px 0 0;
+    padding-top: 24px;
+    color: var(--ink-muted);
+    font-size: 13.5px;
+    max-width: 60ch;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+  }
+
+  @media (max-width: 560px) {
+    .part-sub, ol.steps, .callout, .tablewrap { margin-left: 0; }
+    .part-head { align-items: center; }
+  }
+</style>
+
+<header class="hero">
+  <div class="inner">
+    <div class="eyebrow"><span class="dot"></span> Setup guide, no experience needed</div>
+    <h1 class="title">Installing QuickFix</h1>
+    <p class="subtitle">
+      QuickFix fixes grammar and translates text right where you're typing — a FreshService
+      ticket, a webmail reply, anywhere. This walks through every click, start to finish,
+      in about ten minutes.
+    </p>
+    <div class="facts">
+      <span class="fact"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 2 3 7v6c0 5 4 8.5 9 9 5-.5 9-4 9-9V7z"/></svg> Free to run</span>
+      <span class="fact"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h16"/></svg> Chrome or Edge</span>
+      <span class="fact"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> ~10 minutes</span>
+    </div>
+  </div>
+</header>
+
+<nav class="jump" aria-label="Jump to section">
+  <div class="row">
+    <a href="#key">A · Get a key</a>
+    <a href="#install">B · Install</a>
+    <a href="#connect">C · Connect it</a>
+    <a href="#try">D · Try it</a>
+    <a href="#daily">E · Everyday use</a>
+    <a href="#help">F · If something's wrong</a>
+    <a href="#package">G · Prepare a submission</a>
+    <a href="#chrome-store">H · Publish to Chrome</a>
+    <a href="#edge-store">I · Publish to Edge</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- ============================================================ A -->
+  <section class="part" id="key">
+    <div class="part-head">
+      <span class="part-letter">A</span>
+      <h2 class="part-title">Get a free Gemini API key</h2>
+    </div>
+    <p class="part-sub">
+      QuickFix uses Google's Gemini AI to do the actual writing work. You need a personal key
+      so it can talk to Gemini on your behalf — think of it as a password just for this.
+    </p>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <p>Go to Google AI Studio and sign in with your Google account.</p>
+          <p class="step-detail">
+            <span class="path">aistudio.google.com/apikey</span>
+          </p>
+          <div class="copyrow">
+            <button class="copy" data-copy="aistudio.google.com/apikey">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy address
+            </button>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <p>Click <strong>Create API key</strong>.</p>
+          <p class="step-detail">If it asks you to pick a project, the default one Google offers is fine.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <p>Copy the key it gives you — a long string starting with <code class="inline">AIza…</code></p>
+          <p class="step-detail">Paste it somewhere temporary (Notepad is fine). You'll need it again in Part C.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="callout warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <div>
+        <span class="head">Keep this key private</span>
+        <p>Treat it like a password — anyone with it can use your free Gemini quota. QuickFix
+        stores it only on this computer and never shares it with anyone but Google's API.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ B -->
+  <section class="part" id="install">
+    <div class="part-head">
+      <span class="part-letter">B</span>
+      <h2 class="part-title">Install the extension</h2>
+    </div>
+    <p class="part-sub">
+      QuickFix isn't in the Chrome Web Store — it's loaded straight from its folder, which
+      takes four clicks and never expires.
+    </p>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <p>Open a new tab and type this into the address bar, then press Enter:</p>
+          <div class="copyrow">
+            <code class="inline">edge://extensions</code>
+            <button class="copy" data-copy="edge://extensions">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy
+            </button>
+          </div>
+          <p class="step-detail">Using Chrome instead? Use <code class="inline">chrome://extensions</code> — everything else is identical.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <p>Find the <strong>Developer mode</strong> switch (usually bottom-left, or top-right in Chrome) and turn it on.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <p>Click the <strong>Load unpacked</strong> button that appears.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">4</span>
+        <div class="step-body">
+          <p>In the folder picker, select this whole folder and click <strong>Select Folder</strong>:</p>
+          <div class="copyrow">
+            <code class="inline">C:\Users\albadinm\quickfix-extension</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+          </div>
+          <p class="step-detail">Select the folder itself — don't open it and pick a file inside.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="callout ok">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      <div>
+        <span class="head">You'll know it worked</span>
+        <p>A card for <strong>QuickFix — Inline Grammar &amp; Translate</strong> appears in the list, with a
+        small indigo checkmark icon, and a settings tab opens automatically — that's Part C, next.</p>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <div>
+        <span class="head">On a managed work laptop? Clicking Load unpacked may do nothing</span>
+        <p style="margin-bottom:8px">
+          Organisation-managed devices often block extensions outright — the button clicks but no
+          folder picker opens, with no error message. This isn't something to work around
+          yourself; it's a decision for IT, and allowlisting alone often isn't the whole fix —
+          many organisations separately block <em>Developer-Mode loading itself</em> as an install
+          method, which no allowlist entry unblocks.
+        </p>
+        <p>
+          If that's the situation, the working path on a managed device is usually a private,
+          unlisted listing in the Chrome Web Store or Microsoft Edge Add-ons store instead of Load
+          unpacked — installed like any other extension, so the Developer-Mode block never comes
+          into play. That's a separate one-time setup step — see
+          <a href="#package">Part G</a> onward, below — rather than something to solve from this
+          guide's Part B. Once it's live, IT allowlists the Store-assigned ID and you install from
+          the private Store link instead of steps 1–4 above.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ C -->
+  <section class="part" id="connect">
+    <div class="part-head">
+      <span class="part-letter">C</span>
+      <h2 class="part-title">Connect your key</h2>
+    </div>
+    <p class="part-sub">
+      One-time setup so QuickFix knows which Gemini account to use.
+    </p>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <p>On the QuickFix settings tab (or click the puzzle-piece icon in the toolbar, then QuickFix, then <strong>Settings</strong>), find the <strong>API key</strong> box under "Gemini".</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <p>Paste the key you copied in Part A.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <p>Click <strong>Test connection</strong> — it should reply with a corrected sentence in under a couple of seconds.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">4</span>
+        <div class="step-body">
+          <p>Click <strong>Save settings</strong>.</p>
+          <p class="step-detail">
+            While you're there: <strong>Translation → Translate to</strong> is set to Arabic by default —
+            change it if you'd rather translate into something else.
+          </p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ D -->
+  <section class="part" id="try">
+    <div class="part-head">
+      <span class="part-letter">D</span>
+      <h2 class="part-title">Try it out</h2>
+    </div>
+    <p class="part-sub">
+      A safe practice page before you use it somewhere that matters.
+    </p>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <p>Open this file in your browser (drag it into a new tab, or use <span class="kbd">Ctrl</span> + <span class="kbd">O</span> from within the browser):</p>
+          <div class="copyrow">
+            <code class="inline">C:\Users\albadinm\quickfix-extension\test\playground.html</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension\test\playground.html">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <p>Click and drag to select a sentence in the first box ("textarea").</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <p>Press <span class="kbd">Alt</span> + <span class="kbd">G</span> to fix grammar, or <span class="kbd">Alt</span> + <span class="kbd">T</span> to translate.</p>
+          <p class="step-detail">A small "Fixing…" pill appears for a second, then your selected text is replaced.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="callout tip">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      <div>
+        <span class="head">Nothing happened?</span>
+        <p>Files opened from disk need one extra permission. Go back to <code class="inline">edge://extensions</code>,
+        click <strong>Details</strong> on the QuickFix card, and turn on <strong>Allow access to file URLs</strong>.
+        Then reload the practice page. This step is only needed for files on your own computer —
+        ordinary websites don't need it.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ E -->
+  <section class="part" id="daily">
+    <div class="part-head">
+      <span class="part-letter">E</span>
+      <h2 class="part-title">Everyday use</h2>
+    </div>
+    <p class="part-sub">
+      Once it's set up, this is all there is to it — on FreshService, Outlook on the web, or
+      almost any other text box.
+    </p>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">Select the text you want to change.</div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">Press a shortcut, right-click and choose QuickFix, or click the small toolbar that pops up next to your selection.</div>
+      </li>
+      <li class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">The new text appears in place of the old. Not happy with it? <span class="kbd">Ctrl</span> + <span class="kbd">Z</span> undoes it, exactly like any other edit.</div>
+      </li>
+    </ol>
+
+    <div class="tablewrap" style="margin-top:18px">
+      <table>
+        <thead>
+          <tr><th>Action</th><th>Shortcut</th><th>Also works via</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Fix grammar</td><td><span class="kbd">Alt</span> + <span class="kbd">G</span></td><td>Right-click → QuickFix → Fix grammar</td></tr>
+          <tr><td>Translate</td><td><span class="kbd">Alt</span> + <span class="kbd">T</span></td><td>Right-click → QuickFix → Translate to…</td></tr>
+          <tr><td>Undo a change</td><td><span class="kbd">Ctrl</span> + <span class="kbd">Z</span></td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout warn" style="margin-top:22px">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <div>
+        <span class="head">Two things worth knowing</span>
+        <p style="margin-bottom:8px">
+          <strong>New Outlook desktop app doesn't work.</strong> QuickFix only runs inside a
+          browser tab — so it works on Outlook on the web (outlook.office.com), but not the
+          separate New Outlook Windows app.
+        </p>
+        <p>
+          <strong>Selected text is sent to Google.</strong> Whatever you select is processed by
+          Google's Gemini service to fix or translate it. If you're on an NHS trust system,
+          check your Information Governance policy before using it on anything that could
+          contain patient-identifiable information.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ F -->
+  <section class="part" id="help">
+    <div class="part-head">
+      <span class="part-letter">F</span>
+      <h2 class="part-title">If something's wrong</h2>
+    </div>
+    <p class="part-sub">Common snags and the one-line fix for each.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>What you see</th><th>What to do</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Nothing happens when I press the shortcut</td>
+            <td>Reload the page you're testing on — the extension only wakes up on pages loaded after it was installed or updated.</td>
+          </tr>
+          <tr>
+            <td>"Select the text you want QuickFix to work on first"</td>
+            <td>Highlight some text before pressing the shortcut. In rich-text boxes (like an email editor) this is required — QuickFix won't guess.</td>
+          </tr>
+          <tr>
+            <td>"That Gemini API key was rejected"</td>
+            <td>Re-copy the key from Part A — it's easy to grab a trailing space by accident. Paste it fresh into Settings.</td>
+          </tr>
+          <tr>
+            <td>Shortcut does something else on a website</td>
+            <td>That site has claimed <span class="kbd">Alt</span>+<span class="kbd">G</span> or <span class="kbd">Alt</span>+<span class="kbd">T</span> for itself. Use the right-click menu instead, or change the shortcut at <code class="inline">edge://extensions/shortcuts</code>.</td>
+          </tr>
+          <tr>
+            <td>Text is replaced but the site doesn't seem to notice</td>
+            <td>Click elsewhere on the page once, or try Send/Save again — some sites take a moment to register the change.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ G -->
+  <section class="part" id="package">
+    <div class="part-head">
+      <span class="part-letter">G</span>
+      <h2 class="part-title">Prepare a submission</h2>
+    </div>
+    <p class="part-sub">
+      One-time prep shared by both stores below — do this once, then Parts H and I each take
+      about ten minutes on top.
+    </p>
+
+    <div class="tablewrap" style="margin-bottom:22px">
+      <table>
+        <thead>
+          <tr><th></th><th>Chrome Web Store</th><th>Microsoft Edge Add-ons</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Cost</td><td>One-time $5 developer fee</td><td>Free</td></tr>
+          <tr><td>Typical review time</td><td>Hours to a few days</td><td>Around a week, can vary</td></tr>
+          <tr><td>Installs into</td><td>Chrome (and Edge, <em>if</em> your org allows other stores — often not, on a managed device)</td><td>Edge only</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout tip">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      <div>
+        <span class="head">Why both?</span>
+        <p>
+          On a managed Edge browser, IT commonly locks the "allow extensions from other stores"
+          setting off — meaning a Chrome Web Store item won't install in Edge even if it's
+          allowlisted by ID. If your work browser is Edge, Part I is the one that actually matters;
+          Part H covers Chrome. Doing both means you're covered regardless of which one IT ends up
+          unlocking.
+        </p>
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <p>Rebuild the submission package (needed once now, and again after any future code change):</p>
+          <div class="copyrow">
+            <code class="inline">powershell -ExecutionPolicy Bypass -File tools\build-package.ps1</code>
+            <button class="copy" data-copy="powershell -ExecutionPolicy Bypass -File tools\build-package.ps1">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy command
+            </button>
+          </div>
+          <p class="step-detail">
+            Run from inside <code class="inline">C:\Users\albadinm\quickfix-extension</code>. It
+            writes <code class="inline">dist\quickfix-webstore.zip</code> — the file both stores
+            want uploaded. This is the only file either dashboard needs from you.
+          </p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <p>Host the privacy policy somewhere public. Both stores require a live URL for it, since
+          this extension sends selected text to an external API (Gemini). The easiest way, using a
+          free GitHub account:</p>
+          <p class="step-detail">
+            Go to <span class="path">gist.github.com</span> → sign in (or create a free account) →
+            paste the contents of <code class="inline">docs\privacy-policy.md</code> → name the file
+            <code class="inline">privacy-policy.md</code> → click <strong>Create public gist</strong>
+            → on the page that opens, click the <strong>Raw</strong> button → copy that page's URL.
+            That's your privacy policy URL — keep it handy for both Part H and Part I.
+          </p>
+          <div class="copyrow">
+            <code class="inline">C:\Users\albadinm\quickfix-extension\docs\privacy-policy.md</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension\docs\privacy-policy.md">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+          </div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ H -->
+  <section class="part" id="chrome-store">
+    <div class="part-head">
+      <span class="part-letter">H</span>
+      <h2 class="part-title">Publish to the Chrome Web Store</h2>
+    </div>
+    <p class="part-sub">
+      Creates a private, unlisted listing — never publicly searchable, installable only by people
+      you allow.
+    </p>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <p>Open the Chrome Web Store Developer Dashboard and sign in with a Google account:</p>
+          <div class="copyrow">
+            <code class="inline">chrome.google.com/webstore/devconsole</code>
+            <button class="copy" data-copy="https://chrome.google.com/webstore/devconsole">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy address
+            </button>
+          </div>
+          <p class="step-detail">If that address has moved, search "Chrome Web Store developer dashboard" — Google occasionally changes it.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <p>First time only: pay the one-time <strong>$5 developer registration fee</strong> when prompted. It covers this and any future item on the same account.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <p>Click <strong>New Item</strong>, then upload the zip from Part G:</p>
+          <div class="copyrow">
+            <code class="inline">C:\Users\albadinm\quickfix-extension\dist\quickfix-webstore.zip</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension\dist\quickfix-webstore.zip">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">4</span>
+        <div class="step-body">
+          <p>On the <strong>Store Listing</strong> tab, fill in the title, summary, description, category, and language, and upload the screenshot — all written out ready to paste in:</p>
+          <div class="copyrow">
+            <code class="inline">docs\store-listing.md</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension\docs\store-listing.md">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+            <code class="inline">dist\screenshot-settings.png</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension\dist\screenshot-settings.png">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">5</span>
+        <div class="step-body">
+          <p>On the <strong>Privacy practices</strong> tab, paste the single-purpose description and permission justifications from that same file, answer the data-usage questions (it transmits your selected text off-device to Gemini — answer truthfully), and paste the privacy policy URL from Part G.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">6</span>
+        <div class="step-body">
+          <p>On the <strong>Distribution</strong> tab, set visibility to <strong>Private</strong> or <strong>Unlisted</strong> — never Public.</p>
+          <p class="step-detail">
+            <strong>Private</strong> restricts installs to specific Google accounts you list (add
+            your own). <strong>Unlisted</strong> means anyone with the direct link can install it,
+            without being individually added. If you only ever use one Google account, either
+            works; Unlisted is the more convenient of the two.
+          </p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">7</span>
+        <div class="step-body">
+          <p>Click <strong>Submit for review</strong>. You'll get an email once it's approved (or if the reviewer needs changes).</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">8</span>
+        <div class="step-body">
+          <p>Once approved, open the item's dashboard page and copy its <strong>extension ID</strong> and Store URL.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="callout warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <div>
+        <span class="head">This ID is new — not the one already given to IT</span>
+        <p>
+          The Store assigns its own permanent ID the moment you first upload, and ignores the ID
+          pinned in the extension's manifest entirely. Send this new ID to whoever manages your
+          organisation's allowlist — the earlier one only applies to unpacked/Developer-Mode
+          loading, which is a different install path.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ============================================================ I -->
+  <section class="part" id="edge-store">
+    <div class="part-head">
+      <span class="part-letter">I</span>
+      <h2 class="part-title">Publish to Microsoft Edge Add-ons</h2>
+    </div>
+    <p class="part-sub">
+      The same idea as Part H, on Microsoft's own dashboard — likely the one that actually matters
+      if your work browser is Edge.
+    </p>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <p>Open the Microsoft Edge Add-ons developer dashboard (part of Partner Center):</p>
+          <div class="copyrow">
+            <code class="inline">partner.microsoft.com/dashboard/microsoftedge</code>
+            <button class="copy" data-copy="https://partner.microsoft.com/en-us/dashboard/microsoftedge/overview">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy address
+            </button>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <p>Sign in with a Microsoft account and register as an extension developer — free, no fee.</p>
+          <p class="step-detail">
+            Use a personal Microsoft account (e.g. an outlook.com/hotmail address) rather than your
+            NHS work account, if you have one — it keeps this personal project separate from your
+            trust's own Microsoft tenant.
+          </p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <p>Click <strong>Create new extension</strong>, and upload the exact same zip from Part G — no changes needed, Edge accepts the same package format as Chrome:</p>
+          <div class="copyrow">
+            <code class="inline">C:\Users\albadinm\quickfix-extension\dist\quickfix-webstore.zip</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension\dist\quickfix-webstore.zip">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">4</span>
+        <div class="step-body">
+          <p>On the <strong>Properties</strong> tab, set category to Productivity and paste the same privacy policy URL from Part G.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">5</span>
+        <div class="step-body">
+          <p>On the <strong>Store listings</strong> tab, fill in the display name and description from <code class="inline">docs\store-listing.md</code>, and upload the same screenshot as Part H:</p>
+          <div class="copyrow">
+            <code class="inline">dist\screenshot-settings.png</code>
+            <button class="copy" data-copy="C:\Users\albadinm\quickfix-extension\dist\screenshot-settings.png">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy path
+            </button>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">6</span>
+        <div class="step-body">
+          <p>Set <strong>Visibility</strong> to Private/Unlisted (wording varies by dashboard version) — not Public.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">7</span>
+        <div class="step-body">
+          <p>Submit for certification. Microsoft's review is separate from Google's — expect roughly a week, though it varies.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">8</span>
+        <div class="step-body">
+          <p>Once certified, copy the item's extension ID and Store URL from the dashboard.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="callout ok">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      <div>
+        <span class="head">Installing once it's live</span>
+        <p>
+          Open the Edge Add-ons URL in Edge and click <strong>Get</strong>. If your organisation
+          blocked "Load unpacked" but allows Microsoft-vetted Edge Add-ons store items, this is the
+          path that actually gets QuickFix running on your work laptop — give IT this ID (separate
+          from both the unpacked ID and the Chrome Web Store ID) to allowlist.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Extension folder: <code class="inline">C:\Users\albadinm\quickfix-extension</code> —
+    open <code class="inline">README.md</code> inside it for the technical write-up.
+  </footer>
+
+</div>
+
+<script>
+  document.querySelectorAll('button.copy').forEach((btn) => {
+    const original = btn.innerHTML;
+    btn.addEventListener('click', async () => {
+      const text = btn.getAttribute('data-copy');
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Copied';
+        setTimeout(() => { btn.innerHTML = original; }, 1600);
+      } catch {
+        btn.textContent = 'Select & copy manually';
+      }
+    });
+  });
+</script>

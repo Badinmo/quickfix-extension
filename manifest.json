@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "QuickFix — Inline Grammar & Translate",
+  "version": "1.0.0",
+  "description": "Fix grammar or translate the text you have selected, replaced inline in any text field. Powered by Google Gemini.",
+  "minimum_chrome_version": "116",
+
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0/os+CJJGJi6Q59wXqTlMMnFvuHZUdgxVzR2WgQN3UbXEL1z/3Ts4eFHWW/5sl/hr+0tTTWDRlIl1Eg5r5EzaDjf030Fpot28JBbM4hta2lUKnehOqWHIAZ+kiAnillVLqwsAUKJV0BiPHQWAiY8U7opjsehhdsg6xPKsTNr4A5vdr8GnmdlnAVBwgOTR85DBl/YpO29ad4ApbJ1DIfWAx2gc6lrFfr77Tu/bdUrFHL3pER73PyajRDmQS+L+JnUNRPbXwjcRWEWlSXENH+g+ApFZztyMCkZ3Ho777plIS+QPMCfKo3VaN4/TJ/ykRnMR9Zk/wT1YtIF4JE+X8RpiQIDAQAB",
+
+  "permissions": [
+    "storage",
+    "contextMenus"
+  ],
+
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
+  ],
+
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "match_origin_as_fallback": true,
+      "run_at": "document_idle",
+      "js": ["content/content.js"]
+    }
+  ],
+
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+
+  "action": {
+    "default_title": "QuickFix",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "commands": {
+    "fix-grammar": {
+      "suggested_key": { "default": "Alt+G" },
+      "description": "Fix grammar in the selected text"
+    },
+    "translate": {
+      "suggested_key": { "default": "Alt+T" },
+      "description": "Translate the selected text"
+    }
+  }
+}

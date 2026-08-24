@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>QuickFix settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>QuickFix</h1>
+      <p class="sub">Inline grammar fixing and translation, powered by Google Gemini.</p>
+    </header>
+
+    <section>
+      <h2>Gemini</h2>
+
+      <label class="field">
+        <span class="label">API key</span>
+        <span class="row">
+          <input type="password" id="apiKey" autocomplete="off" spellcheck="false"
+                 placeholder="AIza…" />
+          <button type="button" class="ghost" id="toggleKey">Show</button>
+        </span>
+        <span class="hint">
+          Get a free key from Google AI Studio at
+          <span class="mono">aistudio.google.com/apikey</span>. Stored with
+          <span class="mono">chrome.storage.local</span> — it stays on this machine and is
+          never synced to your browser account.
+        </span>
+      </label>
+
+      <label class="field">
+        <span class="label">Model</span>
+        <select id="model"></select>
+      </label>
+
+      <div class="field">
+        <span class="row">
+          <button type="button" id="test">Test connection</button>
+          <span id="testResult" class="test-result"></span>
+        </span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Translation</h2>
+
+      <label class="field">
+        <span class="label">Translate to</span>
+        <select id="targetLanguage"></select>
+      </label>
+
+      <label class="field">
+        <span class="label">Second language</span>
+        <select id="secondaryLanguage"></select>
+        <span class="hint">Used for the swap below.</span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="autoSwapLanguage" />
+        <span>
+          <strong>Swap automatically</strong>
+          <span class="hint">
+            If the selected text is already in your target language, translate it into the
+            second language instead — so <span class="mono">Alt+T</span> handles both directions.
+          </span>
+        </span>
+      </label>
+    </section>
+
+    <section>
+      <h2>Grammar</h2>
+
+      <label class="field">
+        <span class="label">Tone</span>
+        <select id="tone"></select>
+      </label>
+
+      <label class="field">
+        <span class="label">Extra instructions <span class="opt">(optional)</span></span>
+        <textarea id="customInstructions" rows="4"
+          placeholder="e.g. Always use British English spelling. Never use em dashes."></textarea>
+        <span class="hint">Applied to both actions, on every request.</span>
+      </label>
+    </section>
+
+    <section>
+      <h2>Behaviour</h2>
+
+      <label class="check">
+        <input type="checkbox" id="showToolbar" />
+        <span>
+          <strong>Floating toolbar</strong>
+          <span class="hint">Show a small Fix / Translate bar when you select text in an editable field.</span>
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="showIndicator" />
+        <span>
+          <strong>Progress indicator</strong>
+          <span class="hint">Show a “thinking…” pill near the field while the request runs.</span>
+        </span>
+      </label>
+    </section>
+
+    <section>
+      <h2>Shortcuts</h2>
+      <p class="shortcuts">
+        <span class="mono">Alt+G</span> fix grammar &nbsp;·&nbsp;
+        <span class="mono">Alt+T</span> translate
+      </p>
+      <p>
+        <button type="button" class="ghost" id="shortcuts">Change shortcuts</button>
+        <span class="hint inline">Opens your browser’s extension shortcut page.</span>
+      </p>
+    </section>
+
+    <div class="savebar">
+      <button type="button" id="save">Save settings</button>
+      <span id="status" class="status"></span>
+    </div>
+
+    <footer>
+      <p>
+        QuickFix only ever reads the text you have selected, or the single
+        <span class="mono">input</span>/<span class="mono">textarea</span> you are focused in,
+        at the moment you trigger it. It does not read the rest of the page, other tabs, or
+        anything else. That text is sent to Google’s Gemini API to be processed — so treat it
+        the way you would treat pasting it into any other external tool.
+      </p>
+    </footer>
+  </main>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

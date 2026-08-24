@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>QuickFix test playground</title>
+  <style>
+    body { font: 14px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 28px;
+           background: #f6f7f9; color: #111827; }
+    main { max-width: 780px; margin: 0 auto; }
+    h1 { font-size: 20px; }
+    section { background: #fff; border: 1px solid #e2e5ea; border-radius: 10px;
+              padding: 16px 18px; margin-bottom: 14px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+         color: #6b7280; margin: 0 0 10px; }
+    textarea, input[type=text] { width: 100%; box-sizing: border-box; padding: 9px 11px;
+      border: 1px solid #d8dbe2; border-radius: 8px; font: inherit; }
+    .ce { border: 1px solid #d8dbe2; border-radius: 8px; padding: 9px 11px; min-height: 70px; }
+    iframe { width: 100%; height: 190px; border: 1px solid #d8dbe2; border-radius: 8px; }
+    .log { font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+           background: #111827; color: #d1d5db; border-radius: 8px; padding: 10px;
+           height: 130px; overflow: auto; white-space: pre-wrap; }
+    p.hint { color: #6b7280; margin: 0 0 10px; }
+    .quote { border-left: 3px solid #cbd5e1; padding-left: 10px; color: #64748b; margin-top: 10px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>QuickFix test playground</h1>
+  <p class="hint">
+    Select text in any box below, then press <b>Alt+G</b> (grammar) or <b>Alt+T</b> (translate),
+    or right-click the selection. The log at the bottom records the <code>input</code> and
+    <code>change</code> events each field receives — that is what host apps like Outlook and
+    FreshService rely on to notice your edit.
+  </p>
+
+  <section>
+    <h2>1 · textarea</h2>
+    <p class="hint">With nothing selected, Alt+G rewrites the whole box.</p>
+    <textarea id="ta" rows="4">we was hoping you could took a look at the printer in ward 4b, its not been working since tuesday and the staff their are getting frustrated</textarea>
+  </section>
+
+  <section>
+    <h2>2 · input (single line)</h2>
+    <input type="text" id="inp" value="pls advise on ticket INC0042189 asap" />
+  </section>
+
+  <section>
+    <h2>3 · contenteditable</h2>
+    <p class="hint">Requires a real selection — this is deliberate (see README).</p>
+    <div class="ce" id="ce" contenteditable="true">
+      Thanks for you're email. I have raise this with the team and we will get back too you shortly.
+      <div class="quote">
+        From: Someone Else<br />
+        This quoted thread is inside the same editable box on purpose — select only your reply
+        above and check that QuickFix never touches this part.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4 · same-origin iframe</h2>
+    <iframe id="frame" title="iframe editor"></iframe>
+  </section>
+
+  <section>
+    <h2>5 · open shadow DOM</h2>
+    <div id="shadow"></div>
+  </section>
+
+  <section>
+    <h2>6 · read-only text (no field)</h2>
+    <p id="ro">
+      Select this paragraph and use the right-click menu: there is nowhere to write the result
+      back to, so QuickFix should show it in a panel with a Copy button instead.
+    </p>
+  </section>
+
+  <section>
+    <h2>Is the content script alive here?</h2>
+    <p class="hint">
+      Selects text in box 3 and fires a <code>mouseup</code>, then checks whether the extension's
+      floating toolbar appeared. Useful on a real site too — paste the same check into DevTools.
+    </p>
+    <button id="selftest">Run check</button>
+    <span id="selftestResult"></span>
+  </section>
+
+  <section>
+    <h2>Event log</h2>
+    <div class="log" id="log">waiting…</div>
+  </section>
+</main>
+
+<script>
+  const log = document.getElementById('log');
+  let lines = [];
+  function record(where, e) {
+    lines.push(`${new Date().toLocaleTimeString()}  ${where}  ${e.type}` +
+               (e.inputType ? ` (${e.inputType})` : ''));
+    log.textContent = lines.slice(-40).join('\n');
+    log.scrollTop = log.scrollHeight;
+  }
+  for (const [id, name] of [['ta', 'textarea'], ['inp', 'input'], ['ce', 'contenteditable']]) {
+    const el = document.getElementById(id);
+    el.addEventListener('input', (e) => record(name, e));
+    el.addEventListener('change', (e) => record(name, e));
+  }
+
+  // Same-origin iframe with its own editor.
+  const frame = document.getElementById('frame');
+  frame.srcdoc = `
+    <body style="font:14px/1.5 'Segoe UI',system-ui,sans-serif;margin:0;padding:12px">
+      <p style="color:#6b7280;margin:0 0 8px">Inside an iframe — this is the Outlook / FreshService case.</p>
+      <div contenteditable="true" style="border:1px solid #d8dbe2;border-radius:8px;padding:9px;min-height:60px">
+        i have checked the server and their is no errors showing, could you confirm weather the issue still happening
+      </div>
+      <textarea rows="2" style="width:100%;box-sizing:border-box;margin-top:8px;padding:9px;border:1px solid #d8dbe2;border-radius:8px">a textarea inside the iframe, this sentance have mistake</textarea>
+    </body>`;
+
+  // Open shadow root containing a textarea.
+  const shadowHost = document.getElementById('shadow');
+  const shadow = shadowHost.attachShadow({ mode: 'open' });
+  shadow.innerHTML = `
+    <style>textarea{width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #d8dbe2;
+      border-radius:8px;font:14px/1.5 'Segoe UI',system-ui,sans-serif}</style>
+    <textarea rows="3">this textarea lives in a open shadow root, the extension should still find it</textarea>`;
+  shadow.querySelector('textarea').addEventListener('input', (e) => record('shadow textarea', e));
+
+  // Self-test: make a selection the way a user would, then look for the toolbar
+  // the content script injects. DOM events are shared with the extension's
+  // isolated world, so this is a genuine liveness check.
+  const result = document.getElementById('selftestResult');
+  async function selftest() {
+    result.textContent = 'checking…';
+    const ce = document.getElementById('ce');
+    const target = ce.firstChild; // the reply text, not the quoted part
+    const range = document.createRange();
+    range.setStart(target, 0);
+    range.setEnd(target, Math.min(40, target.length));
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    ce.focus();
+    ce.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+    await new Promise((r) => setTimeout(r, 700));
+    const found = !!document.querySelector('[data-quickfix]');
+    result.textContent = found
+      ? 'content script is running (toolbar injected)'
+      : 'no toolbar — content script not running on this page, or the toolbar is turned off';
+    result.dataset.state = found ? 'ok' : 'fail';
+  }
+  document.getElementById('selftest').addEventListener('click', selftest);
+  if (location.search.includes('selftest=1')) selftest();
+</script>
+</body>
+</html>

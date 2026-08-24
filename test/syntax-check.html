@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>QuickFix syntax check</title></head>
+<body>
+<!--
+  Parse-checks every JS file in the extension with the browser's own engine.
+  Nothing is executed: each file is handed to new Function(), which parses the
+  body and throws SyntaxError on bad syntax. ES module syntax is neutralised
+  first (import/export are illegal inside a function body) — everything else is
+  parsed verbatim.
+
+  Run it headless from the repo root:
+
+    & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
+      --disable-gpu --no-first-run --user-data-dir="$env:TEMP\qf-edge" `
+      --allow-file-access-from-files --virtual-time-budget=4000 --dump-dom `
+      "file:///C:/Users/albadinm/quickfix-extension/test/syntax-check.html"
+
+  ...or just open this file in the browser.
+-->
+<pre id="out">running…</pre>
+<script>
+  var FILES = [
+    '../lib/config.js',
+    '../lib/prompts.js',
+    '../lib/ai.js',
+    '../background/service-worker.js',
+    '../options/options.js',
+    '../popup/popup.js',
+    '../content/content.js'
+  ];
+
+  function read(path) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', path, false);
+    xhr.send(null);
+    return xhr.responseText;
+  }
+
+  // Strip module syntax so the source can be parsed inside a function body.
+  function deModule(src) {
+    return src
+      .replace(/^\s*import\s+[^;]*?from\s*['"][^'"]+['"]\s*;?\s*$/gm, ';')
+      .replace(/^\s*import\s*['"][^'"]+['"]\s*;?\s*$/gm, ';')
+      .replace(/^(\s*)export\s+(?=(default|const|let|var|function|async|class))/gm, '$1');
+  }
+
+  var lines = [];
+  for (var i = 0; i < FILES.length; i++) {
+    var path = FILES[i];
+    try {
+      var src = read(path);
+      if (!src) { lines.push('NOT READ     ' + path); continue; }
+      // Top-level await is legal in a module but not in new Function(), so parse
+      // inside an async wrapper.
+      new Function('return (async () => {' + deModule(src) + '})');
+      lines.push('PARSE OK     ' + path);
+    } catch (err) {
+      lines.push('SYNTAX ERROR ' + path + ' :: ' + err.message);
+    }
+  }
+  document.getElementById('out').textContent = lines.join('\n');
+</script>
+</body>
+</html>

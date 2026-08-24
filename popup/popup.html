@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>QuickFix</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <h1>QuickFix</h1>
+
+  <div id="keyState" class="state"></div>
+
+  <ol class="steps">
+    <li>Select text in any field on the page.</li>
+    <li>Press <span class="kbd">Alt</span>+<span class="kbd">G</span> to fix grammar,
+        or <span class="kbd">Alt</span>+<span class="kbd">T</span> to translate.</li>
+    <li>The result replaces your selection. <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> undoes it.</li>
+  </ol>
+
+  <label class="quick">
+    <span>Translate to</span>
+    <select id="targetLanguage"></select>
+  </label>
+
+  <button id="options">Settings</button>
+
+  <p class="note">
+    Right-click a selection for the same actions. QuickFix reads only what you have
+    selected, when you ask it to.
+  </p>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
