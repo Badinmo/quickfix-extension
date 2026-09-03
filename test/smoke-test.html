@@ -29,6 +29,7 @@
   <textarea id="ta">we was hoping you could took a look</textarea>
   <input type="text" id="inp" value="pls advise asap" />
   <div id="ce" contenteditable="true"><span id="reply">Thanks for you're email.</span><div id="quoted">QUOTED THREAD — must not change</div></div>
+  <div id="ceMulti" contenteditable="true"><div id="para1">First paragraph here.</div><div id="para2"></div><div id="para3">Second paragraph here.</div></div>
   <div id="shadowHost"></div>
 </div>
 
@@ -155,6 +156,31 @@ async function main() {
   check('contenteditable → only the selection was sent',
     window.__lastSent?.text === "Thanks for you're email.",
     `sent = ${JSON.stringify(window.__lastSent?.text)}`);
+
+  // 5b — a selection spanning multiple paragraphs (separate block elements,
+  // as contenteditable represents each line/paragraph) must not be falsely
+  // flagged as "changed" by the staleness re-check. Regression test for a
+  // real bug: the check used to compare Selection.toString() (captured at
+  // selection time, which inserts line breaks between paragraphs) against
+  // Range.toString() (re-checked later, which per spec only concatenates
+  // text-node data with no line breaks) — those two disagreed on ANY
+  // multi-paragraph selection even when nothing on the page had changed.
+  const p1 = $('para1').firstChild;
+  const p3 = $('para3').firstChild;
+  const multiRange = document.createRange();
+  multiRange.setStart(p1, 0);
+  multiRange.setEnd(p3, p3.length);
+  $('ceMulti').focus();
+  const multiSel = getSelection();
+  multiSel.removeAllRanges();
+  multiSel.addRange(multiRange);
+  window.__reply = { ok: true, text: 'REPLACED MULTI PARAGRAPH TEXT' };
+  window.__lastSent = null;
+  invoke('grammar');
+  await wait(150);
+  check('multi-paragraph selection → not falsely flagged as changed',
+    $('ceMulti').textContent.includes('REPLACED MULTI PARAGRAPH TEXT'),
+    `text = ${JSON.stringify($('ceMulti').textContent)}`);
 
   // 6 — no selection in a contenteditable must NOT grab the whole box.
   getSelection().removeAllRanges();

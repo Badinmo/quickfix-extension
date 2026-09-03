@@ -1,0 +1,534 @@
+<title>Two-Laptop Git Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #F5F6F8;
+    --surface: #FFFFFF;
+    --ink: #16181D;
+    --muted: #5B6270;
+    --line: #DFE3E9;
+    --line-soft: #ECEFF3;
+    --accent: #C2410C;
+    --accent-soft: #FBEAE1;
+    --code-bg: #14161B;
+    --code-ink: #E4E7EC;
+    --code-line: #2A2F38;
+    --code-comment: #7E8794;
+    --ok: #15803D;
+    --ok-bg: #EBF7EF;
+    --warn: #A16207;
+    --warn-bg: #FDF6E7;
+    --shadow: 0 1px 2px rgba(22,24,29,.05), 0 6px 20px rgba(22,24,29,.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101216;
+      --surface: #171A20;
+      --ink: #E9ECF1;
+      --muted: #9AA3B2;
+      --line: #262B34;
+      --line-soft: #1E222A;
+      --accent: #FB923C;
+      --accent-soft: #2A1B10;
+      --code-bg: #0B0D11;
+      --code-ink: #E4E7EC;
+      --code-line: #232830;
+      --code-comment: #6E7884;
+      --ok: #4ADE80;
+      --ok-bg: #10251A;
+      --warn: #FBBF24;
+      --warn-bg: #251E0E;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #101216;
+    --surface: #171A20;
+    --ink: #E9ECF1;
+    --muted: #9AA3B2;
+    --line: #262B34;
+    --line-soft: #1E222A;
+    --accent: #FB923C;
+    --accent-soft: #2A1B10;
+    --code-bg: #0B0D11;
+    --code-ink: #E4E7EC;
+    --code-line: #232830;
+    --code-comment: #6E7884;
+    --ok: #4ADE80;
+    --ok-bg: #10251A;
+    --warn: #FBBF24;
+    --warn-bg: #251E0E;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 16px/1.65 "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 730px; margin: 0 auto; padding: 0 22px 88px; }
+
+  h1, h2, h3 {
+    font-family: "Archivo", -apple-system, "Segoe UI", system-ui, sans-serif;
+    text-wrap: balance;
+    margin: 0;
+    letter-spacing: -0.015em;
+  }
+
+  /* ------------------------------------------------------------- header */
+
+  header { padding: 52px 22px 30px; }
+  header .inner { max-width: 730px; margin: 0 auto; }
+
+  .eyebrow {
+    font: 600 11.5px/1 "IBM Plex Mono", monospace;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 15px;
+  }
+
+  h1 { font-size: clamp(29px, 5.2vw, 38px); font-weight: 700; }
+
+  .standfirst {
+    margin-top: 12px;
+    max-width: 60ch;
+    color: var(--muted);
+    font-size: 16.5px;
+  }
+
+  /* -------------------------------------------------------------- section */
+
+  section { margin-top: 46px; }
+
+  h2 {
+    font-size: 20px;
+    font-weight: 700;
+    padding-bottom: 11px;
+    border-bottom: 2px solid var(--line);
+    margin-bottom: 22px;
+  }
+
+  h3 {
+    font-size: 15.5px;
+    font-weight: 600;
+    margin-bottom: 9px;
+  }
+
+  p { margin: 0 0 14px; }
+  p:last-child { margin-bottom: 0; }
+  .lede { color: var(--muted); margin-bottom: 20px; max-width: 62ch; }
+
+  /* --------------------------------------------------------- code blocks */
+
+  .cmd {
+    position: relative;
+    background: var(--code-bg);
+    border: 1px solid var(--code-line);
+    border-radius: 9px;
+    margin: 0 0 14px;
+    overflow: hidden;
+  }
+  .cmd pre {
+    margin: 0;
+    padding: 13px 74px 13px 15px;
+    overflow-x: auto;
+    font: 400 13.5px/1.75 "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    color: var(--code-ink);
+  }
+  .cmd .c { color: var(--code-comment); }
+  .cmd button {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    font: 500 11.5px/1 "IBM Plex Mono", monospace;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--code-comment);
+    background: transparent;
+    border: 1px solid var(--code-line);
+    border-radius: 6px;
+    padding: 6px 9px;
+    cursor: pointer;
+  }
+  .cmd button:hover { color: var(--code-ink); border-color: var(--code-comment); }
+  .cmd button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  code.inline {
+    font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    font-size: .875em;
+    background: var(--line-soft);
+    border: 1px solid var(--line);
+    padding: 1px 5px;
+    border-radius: 4px;
+    word-break: break-word;
+  }
+
+  /* ------------------------------------------------- the loop (graph rail) */
+
+  ol.loop {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+  }
+
+  ol.loop > li {
+    position: relative;
+    padding-left: 36px;
+  }
+
+  /* commit node */
+  ol.loop > li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 5px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2.5px solid var(--accent);
+    z-index: 1;
+  }
+
+  /* branch line joining the nodes */
+  ol.loop > li::after {
+    content: "";
+    position: absolute;
+    left: 5.75px;
+    top: 18px;
+    bottom: -26px;
+    width: 2px;
+    background: var(--line);
+  }
+  ol.loop > li:last-child::after { display: none; }
+
+  ol.loop .step-title {
+    font-family: "Archivo", sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    margin-bottom: 7px;
+  }
+  ol.loop .step-title .what {
+    font-family: "IBM Plex Sans", sans-serif;
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+
+  /* -------------------------------------------------------------- callout */
+
+  .note {
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    padding: 15px 17px;
+    font-size: 15px;
+    box-shadow: var(--shadow);
+  }
+  .note.rule { border-color: var(--accent); background: var(--accent-soft); }
+  .note.warn { border-color: var(--warn); background: var(--warn-bg); }
+  .note .h {
+    font-family: "Archivo", sans-serif;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .note.rule .h { color: var(--accent); }
+  .note.warn .h { color: var(--warn); }
+
+  /* ---------------------------------------------------------------- table */
+
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 540px; }
+  th, td { text-align: left; padding: 12px 15px; vertical-align: top; }
+  thead th {
+    font-family: "Archivo", sans-serif;
+    font-size: 11.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--line-soft);
+    border-bottom: 1px solid var(--line);
+    font-weight: 700;
+  }
+  tbody tr + tr td { border-top: 1px solid var(--line); }
+  td code { font-family: "IBM Plex Mono", monospace; font-size: 12.8px; }
+
+  /* --------------------------------------------------------- commit names */
+
+  .msg-list { display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; }
+  .msg {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 10px;
+    align-items: start;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .msg .mark { font-weight: 500; }
+  .msg.good .mark { color: var(--ok); }
+  .msg.bad .mark { color: var(--muted); }
+  .msg.bad .t { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+
+  footer {
+    margin-top: 52px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<header>
+  <div class="inner">
+    <div class="eyebrow">quickfix-extension</div>
+    <h1>Two-Laptop Git Loop</h1>
+    <p class="standfirst">
+      How to save your work to GitHub from one machine and pick it up on another, without
+      the drag-and-drop uploads. Five commands, in the same order, every time.
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ============================================================ SETUP -->
+  <section>
+    <h2>Setting up a machine (once each)</h2>
+    <p class="lede">
+      Do this once per laptop. After that you only ever use the loop in the next section.
+    </p>
+
+    <h3>Tell git who you are</h3>
+    <p>Every commit is stamped with a name and email. Git refuses to commit until you set them.</p>
+    <div class="cmd">
+      <pre><code>git config --global user.name "Mothanna Albadin"
+git config --global user.email "mothanna.alb@gmail.com"</code></pre>
+      <button class="copy">Copy</button>
+    </div>
+
+    <h3>On a machine that doesn't have the project yet</h3>
+    <p>
+      Downloads the whole project <em>and</em> its history into a new folder. Run it from wherever
+      you keep your projects — it creates the folder for you.
+    </p>
+    <div class="cmd">
+      <pre><code>git clone https://github.com/YOUR-USERNAME/quickfix-extension.git</code></pre>
+      <button class="copy">Copy</button>
+    </div>
+
+    <h3>On this work laptop, where the folder already exists</h3>
+    <p>
+      This folder isn't a git repo yet — it was uploaded by hand. These commands adopt the GitHub
+      history without touching your files, so nothing local is lost.
+    </p>
+    <div class="cmd">
+      <pre><code>cd C:\Users\albadinm\quickfix-extension
+git init
+git branch -M main
+git remote add origin https://github.com/YOUR-USERNAME/quickfix-extension.git
+git fetch origin
+git reset origin/main</code></pre>
+      <button class="copy">Copy</button>
+    </div>
+    <div class="note warn">
+      <span class="h">Copy the folder first</span>
+      <p>
+        Before running that block, make a duplicate of the folder somewhere safe. The commands
+        above are non-destructive, but a typo in one of them might not be — and this folder is
+        what your browser loads the extension from.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================= LOOP -->
+  <section>
+    <h2>The loop</h2>
+    <p class="lede">
+      This is the whole thing. Same five steps, same order, every session — on either machine.
+    </p>
+
+    <ol class="loop">
+      <li>
+        <div class="step-title">Pull <span class="what">— get what the other laptop did</span></div>
+        <p>Always first, before you change anything. Skipping this is what causes the mess in the last section.</p>
+        <div class="cmd">
+          <pre><code>git pull</code></pre>
+          <button class="copy">Copy</button>
+        </div>
+      </li>
+
+      <li>
+        <div class="step-title">Work <span class="what">— edit files normally</span></div>
+        <p>Nothing git-related here. Edit, test, reload the extension — however long that takes.</p>
+      </li>
+
+      <li>
+        <div class="step-title">Check <span class="what">— see what you changed</span></div>
+        <p>Lists every file you touched. Worth a look each time, so nothing sneaks into a commit.</p>
+        <div class="cmd">
+          <pre><code>git status</code></pre>
+          <button class="copy">Copy</button>
+        </div>
+      </li>
+
+      <li>
+        <div class="step-title">Commit <span class="what">— save a labelled snapshot</span></div>
+        <p>
+          <code class="inline">add -A</code> stages every change; <code class="inline">-m</code> is
+          the label. This saves locally only — GitHub doesn't see it yet.
+        </p>
+        <div class="cmd">
+          <pre><code>git add -A
+git commit -m "Fix false 'text changed' error on multi-paragraph selections"</code></pre>
+          <button class="copy">Copy</button>
+        </div>
+      </li>
+
+      <li>
+        <div class="step-title">Push <span class="what">— send it to GitHub</span></div>
+        <p>
+          Now the other laptop can pull it. The very first push from a machine needs
+          <code class="inline">-u origin main</code>; after that plain
+          <code class="inline">git push</code> is enough.
+        </p>
+        <div class="cmd">
+          <pre><code>git push</code></pre>
+          <button class="copy">Copy</button>
+        </div>
+      </li>
+    </ol>
+
+    <div class="note rule" style="margin-top:26px">
+      <span class="h">The rule that keeps two laptops sane</span>
+      <p>
+        <strong>Pull when you sit down. Push before you walk away.</strong> Git can't sync what you
+        never pushed — if you leave work uncommitted on the work laptop and then edit the same file
+        at home, you get to untangle it by hand later.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================ NAMES -->
+  <section>
+    <h2>Naming a commit</h2>
+    <p class="lede">
+      The message is for future-you, scrolling a list months from now trying to find when something
+      broke. Say <em>what changed</em>, in the imperative — "Fix", "Add", "Remove" — as though
+      finishing the sentence "this commit will…".
+    </p>
+
+    <div class="msg-list">
+      <div class="msg good"><span class="mark">✓</span><span class="t">Update model list to Gemini 3, drop retired 2.5 models</span></div>
+      <div class="msg good"><span class="mark">✓</span><span class="t">Raise token budget so thinking doesn't consume the whole reply</span></div>
+      <div class="msg good"><span class="mark">✓</span><span class="t">Add regression test for multi-paragraph selections</span></div>
+      <div class="msg bad"><span class="mark">✕</span><span class="t">update</span></div>
+      <div class="msg bad"><span class="mark">✕</span><span class="t">fixed stuff</span></div>
+      <div class="msg bad"><span class="mark">✕</span><span class="t">asdf</span></div>
+    </div>
+
+    <p>
+      Keep it under about 70 characters. If you genuinely need to explain <em>why</em>, commit
+      without <code class="inline">-m</code> — git opens an editor where line 1 is the title, then
+      a blank line, then as much detail as you like.
+    </p>
+  </section>
+
+  <!-- ========================================================= TROUBLE -->
+  <section>
+    <h2>When git complains</h2>
+    <p class="lede">Four messages cover almost everything you'll hit on a solo two-machine repo.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>It says</th><th>It means</th><th>Do this</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Updates were rejected… non-fast-forward</code></td>
+            <td>The other laptop pushed something you don't have yet.</td>
+            <td>Run <code>git pull</code>, then <code>git push</code> again.</td>
+          </tr>
+          <tr>
+            <td><code>Please tell me who you are</code></td>
+            <td>Identity not set on this machine.</td>
+            <td>Run the two <code>git config</code> commands at the top.</td>
+          </tr>
+          <tr>
+            <td><code>CONFLICT (content): Merge conflict in…</code></td>
+            <td>You changed the same lines on both laptops.</td>
+            <td>Open the file. Git marks both versions with <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> and <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> — delete the markers and the version you don't want, then <code>git add -A</code> and <code>git commit</code>.</td>
+          </tr>
+          <tr>
+            <td>A browser window asking you to sign in to GitHub</td>
+            <td>First push from this machine — it's authenticating you.</td>
+            <td>Sign in. It's remembered from then on.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note" style="margin-top:20px">
+      <span class="h">Two commands worth knowing</span>
+      <p style="margin-bottom:10px">
+        <code class="inline">git log --oneline</code> — the list of commits, newest first. This is
+        what your commit names buy you.
+      </p>
+      <p>
+        <code class="inline">git diff</code> — exactly what you've changed since the last commit,
+        line by line. Press <code class="inline">q</code> to get out of it.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    Repo: <code class="inline">quickfix-extension</code> · Working folder on this laptop:
+    <code class="inline">C:\Users\albadinm\quickfix-extension</code> ·
+    <code class="inline">dist/</code> and <code class="inline">*.pem</code> are gitignored and
+    never get committed.
+  </footer>
+
+</div>
+
+<script>
+  document.querySelectorAll(".cmd button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var code = btn.parentElement.querySelector("code");
+      var text = code ? code.innerText : "";
+      navigator.clipboard.writeText(text).then(
+        function () {
+          btn.textContent = "Copied";
+          setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+        },
+        function () { btn.textContent = "Select manually"; }
+      );
+    });
+  });
+</script>

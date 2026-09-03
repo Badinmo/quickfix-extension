@@ -1,0 +1,8 @@
+# Build output — regenerate with tools\build-package.ps1
+dist/
+
+# .crx signing key — this is a real credential (unlike the deleted unpacked-ID
+# key): whoever holds it can produce updates that install as this exact
+# extension ID. Never commit it.
+*.pem
+*.crx

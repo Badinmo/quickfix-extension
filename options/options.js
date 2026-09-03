@@ -108,7 +108,19 @@ $('test').addEventListener('click', async () => {
       text: 'this sentance have a errors in it'
     });
     if (res?.ok) {
-      result.textContent = `Working — returned “${res.text.slice(0, 60)}”`;
+      // Report which thinking setting this model actually accepted. How
+      // thinking is configured varies by model and has changed between
+      // generations, so knowing which form won is the difference between a
+      // fast round trip and the model reasoning at full depth over a typo.
+      let variant = '';
+      try {
+        const stored = await chrome.storage.local.get('thinkingVariants');
+        const id = stored?.thinkingVariants?.[patch.model];
+        if (id) variant = ` · thinking: ${id}`;
+      } catch {
+        /* diagnostic only */
+      }
+      result.textContent = `Working — returned “${res.text.slice(0, 60)}”${variant}`;
       result.className = 'test-result ok';
     } else {
       result.textContent = res?.error || 'Failed.';

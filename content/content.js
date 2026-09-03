@@ -242,16 +242,6 @@
 
     if (!el.isConnected) throw new QfError('That editor has gone from the page — nothing was replaced.');
 
-    let current = '';
-    try {
-      current = range.toString();
-    } catch {
-      current = '';
-    }
-    if (current !== text) {
-      throw new QfError('The text changed while QuickFix was working — nothing was replaced.');
-    }
-
     el.focus({ preventScroll: true });
     const sel = selectionFor(el);
     try {
@@ -259,6 +249,22 @@
       sel.addRange(range);
     } catch {
       throw new QfError('Lost the selection — try again.');
+    }
+
+    // Re-check via sel.toString() — the same call captureTarget() used to get
+    // `text` in the first place. Comparing against range.toString() instead
+    // used to false-positive on any multi-paragraph selection: Range.toString()
+    // is spec'd to just concatenate text-node data with no awareness of block
+    // boundaries, while Selection.toString() inserts line breaks between
+    // paragraphs, so the two disagreed even when nothing on the page changed.
+    let current = '';
+    try {
+      current = sel.toString();
+    } catch {
+      current = '';
+    }
+    if (current !== text) {
+      throw new QfError('The text changed while QuickFix was working — nothing was replaced.');
     }
 
     let ok = false;
@@ -508,7 +514,12 @@
       }
       place(toastEl, rect);
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(hideToast, withSettingsLink ? 9000 : 5000);
+      // Errors linger: a request can take a while, and a 5s message that
+      // expires before you look back at the page reads as "it just did
+      // nothing". Dismissable early with Escape or by clicking it.
+      const life = withSettingsLink ? 15000 : kind === 'error' ? 12000 : 5000;
+      toastEl.addEventListener('click', hideToast);
+      toastTimer = setTimeout(hideToast, life);
     }
 
     function flash(message) {
