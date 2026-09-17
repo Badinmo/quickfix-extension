@@ -143,12 +143,17 @@ on-device result with no fetch; unavailable, absent or throwing → the Gemini f
 always Gemini; no key + on-device translate still runs; no key + grammar → `NO_API_KEY`),
 auto-swap and source detection, the shared 20 s deadline (a hanging on-device call → `TIMEOUT`,
 never a fresh Gemini budget), the `BAD_MODEL` heal never firing on the on-device path,
-`onDeviceStatus` for every availability value, and the BCP-47 table covering every `LANGUAGES`
-entry; and the never-stuck helper the options page wraps the Test button in (Still working at
-5 s, Cancel, hard stop at 20 s, late replies dropped). 164 assertions. Time is faked, so the
-20 s hard stop is exercised in milliseconds. Same headless command as above with
-`provider-test.html` in place of `smoke-test.html` (and `--virtual-time-budget=10000` is
-plenty); the title reads `ALL PASS` or `FAILED n` the same way.
+`onDeviceStatus` for every availability value, a pair made unavailable purely by a language
+change since the toggle was turned on still falling back to Gemini mid-action with no prompt,
+the download-consent helpers (`pairKey`/`hasConsent`/`addConsent`) and `downloadOnDeviceLanguage`
+— forwarding `downloadprogress` fractions in order, resolving and destroying the translator when
+nothing needed downloading, rejecting with a named `AbortError` when cancelled mid-download, and
+a plain error naming the browser or the language when either is missing (#10) — and the BCP-47
+table covering every `LANGUAGES` entry; and the never-stuck helper the options page wraps the
+Test button in (Still working at 5 s, Cancel, hard stop at 20 s, late replies dropped). 180
+assertions. Time is faked, so the 20 s hard stop is exercised in milliseconds. Same headless
+command as above with `provider-test.html` in place of `smoke-test.html` (and
+`--virtual-time-budget=10000` is plenty); the title reads `ALL PASS` or `FAILED n` the same way.
 
 The options page has no harness by design (spec: checked by hand). After touching `options/`,
 open it from the extension card and walk the key section: paste a key and watch the
@@ -241,9 +246,40 @@ on-device calls. The options page's "Translation" section queries the new
 `QF_ON_DEVICE_STATUS { sourceLanguage, targetLanguage }` message (answered by `onDeviceStatus`
 in `lib/on-device.js`) for the secondary → target pair on load and whenever either language
 changes, and greys the toggle out with a human-readable reason unless the browser reports
-`'available'`; turning it on for a `'downloadable'` pair asks a plain `confirm()` naming the
-target language first (the full download-progress-and-cancel consent flow is a later ticket).
-Default is off; nothing changes for a user who never touches it.
+`'available'`. Default is off; nothing changes for a user who never touches it.
+
+**Download consent, progress and cancel (#10).** Turning the toggle on for a `'downloadable'`
+pair opens a consent panel in the options page — Continue / Not now — before anything downloads;
+declining leaves the toggle off and asks nothing else. Continue calls
+`downloadOnDeviceLanguage` in `lib/on-device.js`, which runs `Translator.create()` with a
+`monitor` and an `AbortSignal` and resolves once the pair is ready to translate. This runs
+directly in the options page, not through the background or the offscreen bridge: Chrome and
+Edge both expose `Translator` to a Window context per spec, and an extension's options page is
+one, so no new background message type is needed here — the offscreen bridge exists solely
+because the *service worker* lacks that exposure on Chrome, which is irrelevant to a page. The
+panel shows a progress bar driven by the monitor's `downloadprogress` event (`e.loaded`, a 0–1
+fraction — Chrome's own docs multiply it by 100 for a percentage) and a Cancel button that aborts
+the signal; Chrome's `Translator.create()` does accept an `AbortSignal` per spec, so Cancel is a
+real abort request, but whether the browser actually tears down the in-progress download rather
+than just abandoning this page's interest in it isn't something the extension can verify, so the
+cancelled message says so honestly rather than promising a guarantee it can't back. Completion
+leaves the toggle on, shows a brief success line, and records the pair in the new
+`onDeviceConsentedPairs` setting (`"source>target"` display-name keys, e.g. `"English>Arabic"`,
+via `pairKey`/`hasConsent`/`addConsent` in `lib/on-device.js`) so re-toggling, or coming back to
+an already-consented pair, never asks again — including across a language change: `onDeviceStatus`
+is re-checked on every language edit, and a toggle already on that lands on a new, unconsented,
+downloadable pair is turned off and asked again from this page, never mid-`Alt+T`.
+
+**The size line is deliberately hedged.** Chrome's Translator API reports download *progress*
+once a download starts, but never a size in bytes beforehand (checked directly against Chrome's
+own docs and the spec for this ticket) — the options page's consent text says a one-time
+download of "typically 100–300 MB" rather than inventing a precise figure the browser cannot
+supply.
+
+**Removing a downloaded pack** is outside the extension entirely — Kalam has no API for it. The
+note under the toggle currently names Chrome's `chrome://on-device-translation-internals` page,
+found via web search and a Chromium bug report rather than Chrome's own developer docs, so the
+note is explicit that it's undocumented and may move, and that Edge's equivalent may differ.
 
 **Key onboarding.** Getting a stranger to a free key is the critical path
 ([ADR 0001](docs/adr/0001-no-server-bring-your-own-key.md)), so the options page leads with it:

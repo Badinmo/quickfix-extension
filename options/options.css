@@ -141,8 +141,8 @@ button.ghost {
 }
 
 .status, .test-result, .key-status { font-size: 13px; }
-.status.ok, .test-result.ok, .key-status.ok { color: var(--ok); }
-.status.bad, .test-result.bad, .key-status.bad { color: var(--bad); }
+.status.ok, .test-result.ok, .key-status.ok, .od-result.ok { color: var(--ok); }
+.status.bad, .test-result.bad, .key-status.bad, .od-result.bad { color: var(--bad); }
 .test-result.busy, .key-status.busy { color: var(--muted); }
 
 /* Key onboarding: the why line, numbered steps with optional screenshots, and
@@ -171,6 +171,34 @@ button.link {
   text-decoration: underline;
 }
 button.link:hover { filter: none; }
+
+/* On-device download consent (#10): the panel under the toggle that asks
+   before a language pack downloads, then shows progress and a result. */
+.od-consent {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.od-consent p { margin: 0 0 10px; font-size: 12.5px; color: var(--ink); }
+.od-consent p:last-child { margin-bottom: 0; }
+.od-buttons { display: flex; gap: 8px; }
+.od-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.od-progress-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.od-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+.od-progress-pct { font-size: 12px; color: var(--muted); min-width: 3em; text-align: right; }
 
 .shortcuts { margin: 0 0 12px; }
 

@@ -1,6 +1,7 @@
 import { DEFAULTS, MODELS, TONES, LANGUAGES, getSettings, saveSettings, recommendedModel } from '../lib/config.js';
 import { KEY_PAGE_URL, WHY_LINE, STEPS, ONE_KEY_NOTE, SUCCESS_LINE } from '../lib/onboarding.js';
 import { runNeverStuck } from '../lib/never-stuck.js';
+import { downloadOnDeviceLanguage, hasConsent, addConsent } from '../lib/on-device.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -113,11 +114,21 @@ loadModelsOrNote();
 /* ------------------------------------------------------------ on-device */
 
 // On-device translate (ADR 0003): greyed with the reason when the browser or
-// the current pair can't do it; a plain confirm() when it can but needs a
-// download first (the full consent flow with size/progress is #10). The pair
-// is always secondary → target — the direction auto-swap produces.
+// the current pair can't do it. Turning it on for a pair that needs a
+// download shows a consent step first (#10): what will download, an
+// approximate size, and Continue / Not now. The pair is always
+// secondary → target — the direction auto-swap produces.
 let onDeviceSeq = 0;
 let lastStatus = null;
+
+const currentPair = () => ({ sourceLanguage: $('secondaryLanguage').value, targetLanguage: $('targetLanguage').value });
+const pairConsented = () => hasConsent(consentedPairs, currentPair());
+
+// `settings` above is a read-only snapshot the way the rest of this file
+// treats it (every other write goes through collect()/patch in save()); the
+// consent list is the one setting that must be updated and persisted the
+// moment a download finishes, so it gets its own mutable copy instead.
+let consentedPairs = Array.isArray(settings.onDeviceConsentedPairs) ? settings.onDeviceConsentedPairs : [];
 
 async function refreshOnDeviceStatus() {
   const toggle = $('onDeviceTranslate');
@@ -126,11 +137,7 @@ async function refreshOnDeviceStatus() {
 
   let status;
   try {
-    status = await chrome.runtime.sendMessage({
-      type: 'QF_ON_DEVICE_STATUS',
-      sourceLanguage: $('secondaryLanguage').value,
-      targetLanguage: $('targetLanguage').value
-    });
+    status = await chrome.runtime.sendMessage({ type: 'QF_ON_DEVICE_STATUS', ...currentPair() });
   } catch {
     status = null;
   }
@@ -139,6 +146,7 @@ async function refreshOnDeviceStatus() {
     lastStatus = null;
     toggle.disabled = true;
     setOnDeviceNote('Could not check this browser for on-device support.', true);
+    hideConsent();
     return;
   }
 
@@ -149,19 +157,160 @@ async function refreshOnDeviceStatus() {
   lastStatus = status;
   toggle.disabled = !status.supported;
   setOnDeviceNote(status.reason || '', !status.supported);
+
+  // A language change can land the toggle — already on, from a previous pair
+  // — on a new pair that needs a download Kalam has no consent for. Ask
+  // again here, exactly like turning the toggle on would; never mid-action,
+  // only from this page (ADR 0003 / #10).
+  if (toggle.checked && status.availability === 'downloadable' && !pairConsented()) {
+    toggle.checked = false;
+    askConsent();
+  } else {
+    hideConsent();
+  }
 }
 
 const setOnDeviceNote = (text, warn) => setHint('onDeviceNote', text, warn);
 
-// Turning it on when the pack isn't downloaded yet asks first, with the size
-// (#10 is the full consent + progress + cancel flow; this is the minimal
-// stand-in the spec asks for). Declining leaves the toggle off.
+/* -------------------------------------------------- download consent (#10) */
+// Continue runs the real download right here in the options page: Chrome and
+// Edge both expose Translator to a Window context, and this page is one, so
+// no background/offscreen round trip or new message type is needed (that
+// bridge exists only for the service worker, which lacks the exposure on
+// Chrome — see lib/on-device.js's downloadOnDeviceLanguage doc comment).
+const odConsent = $('onDeviceConsent');
+const odText = $('odConsentText');
+const odProgressWrap = $('odProgress');
+const odProgressFill = $('odProgressFill');
+const odProgressPct = $('odProgressPct');
+const odResult = $('odResult');
+const odContinue = $('odContinue');
+const odNotNow = $('odNotNow');
+const odCancel = $('odCancel');
+
+let downloadController = null; // the in-flight download's AbortController, if any
+let downloadSeq = 0; // guards the success state's auto-hide against a newer download taking over the panel
+
+/**
+ * The panel is always in exactly one of these states; this is the only place
+ * that touches the five visibility flags together, so a state can never be
+ * left half-applied (e.g. Cancel showing while the ask buttons are also up).
+ * @param {'hidden'|'asking'|'downloading'|'done'} state
+ */
+function setPanelState(state) {
+  odConsent.hidden = state === 'hidden';
+  odContinue.hidden = state !== 'asking';
+  odNotNow.hidden = state !== 'asking';
+  odCancel.hidden = state !== 'downloading';
+  odProgressWrap.hidden = state !== 'downloading';
+  odResult.hidden = state !== 'done';
+}
+
+/**
+ * Abort whatever download is in flight (if any) and bump `downloadSeq`, so
+ * odContinue's own completion handler recognises itself as superseded and
+ * discards its result instead of clobbering whatever the panel has moved on
+ * to. Without this, a download for pair A left running while the panel opens
+ * again for pair B (a language change, or the toggle re-checked mid-download)
+ * would eventually resolve and silently flip the toggle on / repaint the
+ * result for A over whatever B's own flow is showing.
+ */
+function abortInFlightDownload() {
+  downloadSeq++;
+  downloadController?.abort();
+  downloadController = null;
+}
+
+function hideConsent() {
+  abortInFlightDownload();
+  setPanelState('hidden');
+}
+
+function setProgress(fraction) {
+  const pct = Math.max(0, Math.min(100, Math.round((Number(fraction) || 0) * 100)));
+  odProgressFill.style.width = pct + '%';
+  odProgressPct.textContent = pct + '%';
+}
+
+// Chrome reports download progress once it starts (a 0..1 fraction) but never
+// a size in bytes beforehand, so this is the most honest figure Kalam can
+// show — an approximate, hedged one, not a fabricated precise number.
+const APPROX_SIZE_NOTE = "Chrome doesn't report the exact size before downloading starts — on-device " +
+  'language packs are typically in the range of 100–300 MB (a rough figure, not a guarantee).';
+
+function askConsent() {
+  abortInFlightDownload(); // in case this reopens the panel over an earlier pair's still-running download
+  const { targetLanguage } = currentPair();
+  odText.textContent = `On-device translate needs a one-time download of the ${targetLanguage} language pack before it can run on this machine. ${APPROX_SIZE_NOTE}`;
+  setPanelState('asking');
+}
+
+odNotNow.addEventListener('click', () => {
+  $('onDeviceTranslate').checked = false;
+  hideConsent();
+});
+
+odCancel.addEventListener('click', () => downloadController?.abort());
+
+odContinue.addEventListener('click', async () => {
+  const pair = currentPair();
+  const seq = ++downloadSeq;
+  setPanelState('downloading');
+  setProgress(0);
+
+  downloadController = new AbortController();
+  try {
+    await downloadOnDeviceLanguage(pair, { signal: downloadController.signal, onProgress: setProgress });
+    // A newer askConsent()/hideConsent() (a language change, a re-opened
+    // panel) has already moved the panel on since this download started —
+    // discard the result rather than flipping the toggle on for a pair the
+    // page has stopped asking about.
+    if (seq !== downloadSeq) return;
+    setProgress(1);
+    consentedPairs = addConsent(consentedPairs, pair);
+    await saveSettings({ onDeviceConsentedPairs: consentedPairs });
+    $('onDeviceTranslate').checked = true;
+    setLine(odResult, 'Downloaded — on-device translate is on for this language.', 'ok');
+    setPanelState('done');
+    // A brief success state, not a permanent fixture of the page: it clears
+    // itself unless a newer download has since taken over the panel.
+    setTimeout(() => { if (seq === downloadSeq) hideConsent(); }, 2500);
+  } catch (err) {
+    // Superseded the same way as above — this also covers the ordinary case
+    // of abortInFlightDownload() itself having caused this rejection: that
+    // one is not "the user cancelled this pair's download", so it gets no
+    // message here, not even a stale "Cancelled".
+    if (seq !== downloadSeq) return;
+    $('onDeviceTranslate').checked = false;
+    // Chrome's create() does accept an AbortSignal (per spec), so Cancel does
+    // ask it to stop — but whether the underlying download itself is torn
+    // down rather than just abandoned by this page isn't something Kalam can
+    // verify, so the message is honest about the uncertainty either way.
+    setLine(
+      odResult,
+      err?.name === 'AbortError'
+        ? 'Cancelled. The browser may keep downloading in the background even so — the toggle stays off until you turn it on again.'
+        : `Could not download the language pack: ${err?.message || err}`,
+      'bad'
+    );
+    setPanelState('done');
+  } finally {
+    if (seq === downloadSeq) downloadController = null;
+  }
+});
+
+// Turning it on for a pair that needs a download and has no consent yet asks
+// first. An already-consented pair (this session or a previous one) turns on
+// immediately, same as an already-available pair.
 $('onDeviceTranslate').addEventListener('change', () => {
   const toggle = $('onDeviceTranslate');
-  if (!toggle.checked || lastStatus?.availability !== 'downloadable') return;
-  const target = $('targetLanguage').value;
-  const ok = confirm(`This will download a language pack for ${target}. Continue?`);
-  if (!ok) toggle.checked = false;
+  if (!toggle.checked) {
+    hideConsent();
+    return;
+  }
+  if (lastStatus?.availability !== 'downloadable' || pairConsented()) return;
+  toggle.checked = false; // stays off until Continue finishes
+  askConsent();
 });
 
 $('targetLanguage').addEventListener('change', refreshOnDeviceStatus);

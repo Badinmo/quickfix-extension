@@ -209,22 +209,27 @@ const SETTINGS = {
  * @param {'absent'|string} [o.detector]  same for LanguageDetector
  * @param {string} [o.detected]  the language the detector reports
  * @param {(text, opts) => string|Promise<string>} [o.translate]  what translate() does; default echoes the pair
+ * @param {(opts, rec) => Promise<object>} [o.create]  full override for Translator.create — used by the
+ *   download-consent cases (#10) to fire monitor(m)'s downloadprogress and/or honour opts.signal; opts
+ *   carries sourceLanguage/targetLanguage/signal/monitor exactly as downloadOnDeviceLanguage passes them
  */
-function onDevice({ translator = 'available', detector = 'available', detected = 'en', translate } = {}) {
+function onDevice({ translator = 'available', detector = 'available', detected = 'en', translate, create } = {}) {
   const rec = { creates: [], translates: [], detects: [], destroyed: 0 };
   if (translator !== 'absent') {
     window.Translator = {
       availability: async (opts) => (typeof translator === 'function' ? translator(opts) : translator),
-      create: async (opts) => {
-        rec.creates.push({ sourceLanguage: opts.sourceLanguage, targetLanguage: opts.targetLanguage });
-        return {
-          translate: async (text, o) => {
-            rec.translates.push({ text, signal: o?.signal });
-            return translate ? translate(text, opts) : `[${opts.sourceLanguage}→${opts.targetLanguage}] ${text}`;
-          },
-          destroy: () => { rec.destroyed++; }
-        };
-      }
+      create: create
+        ? (opts) => create(opts, rec)
+        : async (opts) => {
+            rec.creates.push({ sourceLanguage: opts.sourceLanguage, targetLanguage: opts.targetLanguage });
+            return {
+              translate: async (text, o) => {
+                rec.translates.push({ text, signal: o?.signal });
+                return translate ? translate(text, opts) : `[${opts.sourceLanguage}→${opts.targetLanguage}] ${text}`;
+              },
+              destroy: () => { rec.destroyed++; }
+            };
+          }
     };
   } else {
     delete window.Translator;
@@ -251,7 +256,7 @@ window.__harness = { advance, now, pendingTimers, check, reset, run, script, aft
 
 <script type="module">
 import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
-import { onDeviceStatus } from '../lib/on-device.js';
+import { onDeviceStatus, downloadOnDeviceLanguage, pairKey, hasConsent, addConsent } from '../lib/on-device.js';
 import { getSettings, MAX_CHARS, MODELS, LANGUAGES, LANGUAGE_CODES } from '../lib/config.js';
 import { runNeverStuck } from '../lib/never-stuck.js';
 
@@ -465,9 +470,16 @@ async function main() {
   check('getSettings() returns provider: "gemini" when unset', s.provider === 'gemini', `provider = ${JSON.stringify(s.provider)}`);
   check('getSettings() returns onDeviceTranslate: false when unset', s.onDeviceTranslate === false,
     `onDeviceTranslate = ${JSON.stringify(s.onDeviceTranslate)}`);
+  check('getSettings() returns onDeviceConsentedPairs: [] when unset',
+    Array.isArray(s.onDeviceConsentedPairs) && s.onDeviceConsentedPairs.length === 0,
+    `onDeviceConsentedPairs = ${JSON.stringify(s.onDeviceConsentedPairs)}`);
   reset();
   window.__storage = { provider: 'gemini', onDeviceTranslate: true };
   check('getSettings() returns a stored onDeviceTranslate', (await getSettings()).onDeviceTranslate === true);
+  reset();
+  window.__storage = { onDeviceConsentedPairs: ['English>Arabic'] };
+  check('getSettings() returns a stored onDeviceConsentedPairs',
+    JSON.stringify((await getSettings()).onDeviceConsentedPairs) === JSON.stringify(['English>Arabic']));
 
   // 12 — the live model list: only content-generating models, Flash first,
   // newest generation floating up, the recommended one marked.
@@ -852,6 +864,18 @@ async function main() {
   od = onDevice({ translator: 'unavailable' });
   await expectGemini('pair unavailable → Gemini, via "gemini"');
   check('an unavailable pair never creates a translator', od.creates.length === 0, JSON.stringify(od.creates));
+
+  // A pair the toggle was turned on for can stop being offered later purely
+  // because the user changed the target/secondary language on the options
+  // page in between — runAction does not know or care why availability()
+  // says 'unavailable', so the same silent Gemini fallback applies mid-action
+  // with no prompt (#10's acceptance criterion; the mechanism is identical to
+  // the case above, this just names the scenario explicitly).
+  reset();
+  od = onDevice({ translator: 'unavailable' });
+  await expectGemini('pair made unavailable by a language change since the toggle was turned on → Gemini mid-action, no prompt',
+    { settings: { ...ON, targetLanguage: 'French', secondaryLanguage: 'Welsh' } });
+  check('the language-change case never creates a translator either', od.creates.length === 0, JSON.stringify(od.creates));
   reset();
   onDevice({ translator: 'downloadable' });
   await expectGemini('pair downloadable (not yet downloaded) → Gemini, no surprise download');
@@ -1094,6 +1118,76 @@ async function main() {
   check('LANGUAGE_CODES has no entry LANGUAGES does not list', extra.length === 0, `extra: ${JSON.stringify(extra)}`);
   const dup = Object.values(LANGUAGE_CODES).filter((c, i, a) => a.indexOf(c) !== i);
   check('no two languages share a tag', dup.length === 0, `duplicates: ${JSON.stringify(dup)}`);
+
+  // 28 — download consent (#10): the pure pair-membership helpers the options
+  // page uses to decide whether to ask again, and downloadOnDeviceLanguage,
+  // the function it calls directly (no background/offscreen round trip — see
+  // its doc comment in lib/on-device.js) when the answer is yes.
+  const enAr = { sourceLanguage: 'English', targetLanguage: 'Arabic' };
+  check('pairKey joins source and target display names with ">"',
+    pairKey(enAr) === 'English>Arabic', pairKey(enAr));
+  check('hasConsent is false for an empty list', hasConsent([], enAr) === false);
+  check('hasConsent is false when only a different pair is listed',
+    hasConsent(['French>Arabic'], enAr) === false);
+  check('hasConsent is true once the pair\'s key is present',
+    hasConsent(['English>Arabic'], enAr) === true);
+  check('addConsent adds the pair to an empty list',
+    JSON.stringify(addConsent([], enAr)) === JSON.stringify(['English>Arabic']));
+  check('addConsent keeps other pairs and appends the new one',
+    JSON.stringify(addConsent(['French>Arabic'], enAr)) === JSON.stringify(['French>Arabic', 'English>Arabic']));
+  check('addConsent is idempotent for a pair already consented',
+    addConsent(['English>Arabic'], enAr).length === 1);
+
+  reset();
+  onDevice({
+    create: async (opts, rec) => {
+      rec.creates.push({ sourceLanguage: opts.sourceLanguage, targetLanguage: opts.targetLanguage });
+      const listeners = [];
+      opts.monitor?.({ addEventListener: (evt, fn) => { if (evt === 'downloadprogress') listeners.push(fn); } });
+      listeners.forEach((fn) => fn({ loaded: 0.4 }));
+      listeners.forEach((fn) => fn({ loaded: 1 }));
+      return { destroy: () => { rec.destroyed++; } };
+    }
+  });
+  const progressed = [];
+  await downloadOnDeviceLanguage({ sourceLanguage: 'English', targetLanguage: 'Arabic' }, { onProgress: (l) => progressed.push(l) });
+  check('downloadOnDeviceLanguage forwards downloadprogress fractions, in order, via onProgress',
+    JSON.stringify(progressed) === JSON.stringify([0.4, 1]), JSON.stringify(progressed));
+
+  reset();
+  const rec = onDevice(); // the default stub: create() resolves at once, never calling monitor — the already-available case
+  await downloadOnDeviceLanguage({ sourceLanguage: 'English', targetLanguage: 'Arabic' });
+  check('downloadOnDeviceLanguage resolves and destroys the translator when nothing needed downloading',
+    rec.destroyed === 1, `destroyed = ${rec.destroyed}`);
+
+  reset();
+  onDevice({
+    create: (opts) => new Promise((_, reject) => {
+      opts.signal?.addEventListener('abort', () => reject(abortError()));
+      // never resolves on its own — only Cancel (the signal) ends this one.
+    })
+  });
+  const ac = new AbortController();
+  const dlPending = downloadOnDeviceLanguage({ sourceLanguage: 'English', targetLanguage: 'Arabic' }, { signal: ac.signal });
+  ac.abort();
+  let downloadErr = null;
+  try { await dlPending; } catch (e) { downloadErr = e; }
+  check('downloadOnDeviceLanguage rejects with an AbortError when the signal aborts mid-download',
+    downloadErr?.name === 'AbortError', String(downloadErr));
+
+  reset();
+  onDevice({ translator: 'absent' });
+  downloadErr = null;
+  try { await downloadOnDeviceLanguage({ sourceLanguage: 'English', targetLanguage: 'Arabic' }); } catch (e) { downloadErr = e; }
+  check('downloadOnDeviceLanguage with no Translator throws a plain (non-abort) error',
+    downloadErr && downloadErr.name !== 'AbortError' && /Translator/i.test(downloadErr.message), String(downloadErr));
+
+  reset();
+  onDevice();
+  downloadErr = null;
+  try { await downloadOnDeviceLanguage({ sourceLanguage: 'English', targetLanguage: 'Klingon' }); } catch (e) { downloadErr = e; }
+  check('downloadOnDeviceLanguage with a language Kalam has no BCP-47 code for throws naming it',
+    /Klingon/.test(downloadErr?.message || ''), String(downloadErr));
 
   const failed = results.filter((x) => x.startsWith('FAIL')).length;
   document.getElementById('out').textContent =

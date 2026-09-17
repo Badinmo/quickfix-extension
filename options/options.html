@@ -90,11 +90,28 @@
           </span>
           <span class="hint" id="onDeviceNote"></span>
           <span class="hint">
-            Kalam cannot delete a downloaded language pack — remove one from your browser's own
-            language settings if you want the space back.
+            Kalam cannot delete a downloaded language pack. Chrome keeps these separately from its
+            page-translation language list — today that's an internal page,
+            <span class="mono">chrome://on-device-translation-internals</span> (undocumented, so the
+            exact location can change between versions, and Edge's own equivalent may differ);
+            search your browser's AI / on-device settings if that stops working.
           </span>
         </span>
       </label>
+
+      <div class="od-consent" id="onDeviceConsent" hidden>
+        <p id="odConsentText"></p>
+        <div class="od-progress" id="odProgress" hidden>
+          <div class="od-progress-track"><div class="od-progress-fill" id="odProgressFill"></div></div>
+          <span class="od-progress-pct" id="odProgressPct">0%</span>
+        </div>
+        <p class="od-result" id="odResult" hidden></p>
+        <p class="row od-buttons">
+          <button type="button" id="odContinue">Continue</button>
+          <button type="button" class="ghost" id="odNotNow">Not now</button>
+          <button type="button" class="ghost" id="odCancel" hidden>Cancel</button>
+        </p>
+      </div>
     </section>
 
     <section>
