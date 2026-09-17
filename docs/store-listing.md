@@ -1,7 +1,7 @@
 # Chrome Web Store / Edge Add-ons listing content
 
 Paste these straight into the Developer Dashboard when submitting
-`dist/quickfix-webstore.zip`. Written for an **unlisted/private** item — visible only to
+`dist/kalam-webstore.zip`. Written for an **unlisted/private** item — visible only to
 people you share the link with, not searchable, not reviewed for a public audience.
 
 ---
@@ -10,19 +10,20 @@ people you share the link with, not searchable, not reviewed for a public audien
 
 **Title** (fits Chrome's 45-character limit)
 ```
-QuickFix - Grammar & Translate
+Kalam - Grammar & Translate
 ```
 
 **Summary** (132 characters max — shown in search/list views)
 ```
-Fix grammar or translate the text you've selected, replaced in place. Works in any text field. Powered by Gemini.
+Fix or translate text in place. No middleman: your text goes straight from your browser to your own AI account. We never see it.
 ```
 
 **Description**
 ```
-QuickFix fixes grammar and structure, or translates text, right where you're typing -
+Kalam fixes grammar and structure, or translates text, right where you're typing -
 a support ticket, a webmail reply, a form field - without switching tabs or copying
-into a separate tool.
+into a separate tool. It is invisible until invoked: no underlines, no scanning, no
+prompts, until you select some text and ask.
 
 HOW IT WORKS
 Select the text you want to change, then press Alt+G to fix grammar or Alt+T to
@@ -31,18 +32,19 @@ other edit. A right-click menu and a small floating toolbar are also available a
 alternatives to the keyboard shortcut.
 
 WHAT IT TOUCHES
-QuickFix only ever reads the text you've explicitly selected (or the single field
+Kalam only ever reads the text you've explicitly selected (or the single field
 you're focused in), at the moment you trigger it. It never scans the rest of the
 page, other open tabs, or anything you haven't selected.
 
 WHERE YOUR TEXT GOES
-Selected text is sent to Google's Gemini API to be processed, using your own API
-key. Nothing is sent anywhere unless you actively trigger an action.
+No middleman: your text goes straight from your browser to your own AI account. We
+never see it. Selected text is sent to the AI provider's API using your own key,
+and nothing is sent anywhere unless you actively trigger an action.
 
 SETTINGS
-Your Gemini API key, target language, tone, and behaviour are set once in Settings
-and stored locally on your device (chrome.storage.local) - never synced through
-your browser account.
+Your API key, target language, tone, and behaviour are set once in Settings and
+stored locally on your device (chrome.storage.local) - never synced through your
+browser account.
 
 This is a personal-use tool, distributed unlisted rather than through public search.
 ```
@@ -68,7 +70,7 @@ dist/screenshot-settings.png
 
 **Single purpose description**
 ```
-QuickFix has a single purpose: when the user explicitly selects text in a web page
+Kalam has a single purpose: when the user explicitly selects text in a web page
 and triggers an action (keyboard shortcut, right-click menu, or floating toolbar),
 it fixes that text's grammar or translates it, then replaces the selection with the
 result. It performs no other function.

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "QuickFix — Inline Grammar & Translate",
+  "name": "Kalam — Inline Grammar & Translate",
   "version": "1.0.0",
-  "description": "Fix grammar or translate the text you have selected, replaced inline in any text field. Powered by Google Gemini.",
+  "description": "Fix or translate text in place. No middleman: your text goes straight from your browser to your own AI account. We never see it.",
   "minimum_chrome_version": "116",
 
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0/os+CJJGJi6Q59wXqTlMMnFvuHZUdgxVzR2WgQN3UbXEL1z/3Ts4eFHWW/5sl/hr+0tTTWDRlIl1Eg5r5EzaDjf030Fpot28JBbM4hta2lUKnehOqWHIAZ+kiAnillVLqwsAUKJV0BiPHQWAiY8U7opjsehhdsg6xPKsTNr4A5vdr8GnmdlnAVBwgOTR85DBl/YpO29ad4ApbJ1DIfWAx2gc6lrFfr77Tu/bdUrFHL3pER73PyajRDmQS+L+JnUNRPbXwjcRWEWlSXENH+g+ApFZztyMCkZ3Ho777plIS+QPMCfKo3VaN4/TJ/ykRnMR9Zk/wT1YtIF4JE+X8RpiQIDAQAB",
@@ -37,7 +37,7 @@
   },
 
   "action": {
-    "default_title": "QuickFix",
+    "default_title": "Kalam",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

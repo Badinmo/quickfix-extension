@@ -1,7 +1,7 @@
-# Builds the Chrome Web Store / Edge Add-ons upload package: a plain ZIP of
-# dist\package (which has already had manifest.json's dev-only "key" field
-# stripped -the store assigns its own permanent ID on first upload and
-# ignores that field anyway).
+# Builds the Chrome Web Store upload package for Kalam: stages the runtime file
+# set into dist\package with manifest.json's dev-only "key" field stripped (the
+# store assigns its own permanent ID on first upload and ignores that field
+# anyway), then writes it as a plain ZIP, dist\kalam-webstore.zip.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\build-package.ps1
 #
@@ -14,11 +14,43 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
 $packageDir = Join-Path $root 'dist\package'
-$zipPath = Join-Path $root 'dist\quickfix-webstore.zip'
+$zipPath = Join-Path $root 'dist\kalam-webstore.zip'
 
-if (-not (Test-Path $packageDir)) {
-    throw "dist\package not found - stage the store file set first (see README's Web Store section)."
+# ----------------------------------------------------------------- staging
+
+# Only what the browser loads. Tests, docs, tools and the repo metadata stay out.
+$packageItems = @('manifest.json', 'background', 'content', 'lib', 'options', 'popup', 'icons')
+
+if (Test-Path $packageDir) { Remove-Item -Path $packageDir -Recurse -Force }
+New-Item -ItemType Directory -Path $packageDir | Out-Null
+foreach ($item in $packageItems) {
+    Copy-Item -Path (Join-Path $root $item) -Destination (Join-Path $packageDir $item) -Recurse
 }
+
+# Plain UTF-8 bytes, no BOM: Set-Content -Encoding UTF8 would prepend one, and
+# a BOM in front of manifest.json is exactly the kind of thing that makes a
+# store upload fail with "manifest is not valid JSON".
+function Get-Utf8Bytes([string]$text) {
+    $bytes = @()
+    foreach ($ch in $text.ToCharArray()) {
+        $c = [int]$ch
+        if ($c -lt 128) {
+            $bytes += $c
+        } elseif ($c -lt 2048) {
+            $bytes += (192 -bor ($c -shr 6)), (128 -bor ($c -band 63))
+        } else {
+            $bytes += (224 -bor ($c -shr 12)), (128 -bor (($c -shr 6) -band 63)), (128 -bor ($c -band 63))
+        }
+    }
+    return $bytes
+}
+
+$manifestPath = Join-Path $packageDir 'manifest.json'
+$manifest = Get-Content -Path $manifestPath -Raw -Encoding UTF8
+$stripped = $manifest -replace '(?m)^\s*"key":\s*"[^"]*",\s*\r?\n', ''
+if ($stripped -eq $manifest) { throw 'manifest.json: expected a "key" field to strip and found none.' }
+Set-Content -Path $manifestPath -Value ([byte[]](Get-Utf8Bytes $stripped)) -Encoding Byte
+"staged $packageDir (manifest key stripped)"
 
 # ------------------------------------------------------------------- CRC32
 

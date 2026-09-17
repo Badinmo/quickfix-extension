@@ -27,7 +27,7 @@ async function buildMenus() {
 
   chrome.contextMenus.create({
     id: MENU_ROOT,
-    title: 'QuickFix',
+    title: 'Kalam',
     contexts: ['selection', 'editable']
   });
   chrome.contextMenus.create({
@@ -135,7 +135,7 @@ async function handleAi(msg) {
     if (err instanceof AiError) {
       return { ok: false, code: err.code, error: err.message };
     }
-    console.error('[QuickFix]', err);
+    console.error('[Kalam]', err);
     return { ok: false, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
   }
 }

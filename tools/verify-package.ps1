@@ -1,4 +1,4 @@
-# Independent check on dist\quickfix-webstore.zip: walks the local file
+# Independent check on dist\kalam-webstore.zip: walks the local file
 # headers by hand, re-reads each entry's raw bytes, and confirms the stored
 # CRC-32 matches what's actually in the archive. Written separately from
 # build-package.ps1 (own CRC table, own byte reader) so it isn't just
@@ -6,7 +6,7 @@
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$zipPath = Join-Path $root 'dist\quickfix-webstore.zip'
+$zipPath = Join-Path $root 'dist\kalam-webstore.zip'
 
 $bytes = Get-Content -Path $zipPath -Encoding Byte -ReadCount 0
 

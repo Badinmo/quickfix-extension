@@ -1,5 +1,5 @@
 /**
- * QuickFix content script.
+ * Kalam content script.
  *
  * Injected into every frame of every page (manifest: all_frames). It is passive:
  * it registers no key listeners on the page and reads nothing until the user
@@ -145,13 +145,13 @@
     // 2. Anything else — go by the selection.
     const sel = selectionFor(active);
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-      throw new QfError('Select the text you want QuickFix to work on first.');
+      throw new QfError('Select the text you want Kalam to work on first.');
     }
 
     const range = sel.getRangeAt(0).cloneRange();
     const text = sel.toString();
     if (!text.trim()) {
-      throw new QfError('Select the text you want QuickFix to work on first.');
+      throw new QfError('Select the text you want Kalam to work on first.');
     }
 
     const host = closestEditableHost(range.commonAncestorContainer);
@@ -194,7 +194,7 @@
 
     if (!el.isConnected) throw new QfError('That field has gone from the page — nothing was replaced.');
     if (el.value.slice(start, end) !== text) {
-      throw new QfError('The field changed while QuickFix was working — nothing was replaced.');
+      throw new QfError('The field changed while Kalam was working — nothing was replaced.');
     }
 
     el.focus({ preventScroll: true });
@@ -264,7 +264,7 @@
       current = '';
     }
     if (current !== text) {
-      throw new QfError('The text changed while QuickFix was working — nothing was replaced.');
+      throw new QfError('The text changed while Kalam was working — nothing was replaced.');
     }
 
     let ok = false;
@@ -317,7 +317,7 @@
     try {
       const res = await sendToBackground({ type: 'QF_AI', action, text: core });
 
-      if (!res) throw new QfError('No response from QuickFix. Try reloading the page.');
+      if (!res) throw new QfError('No response from Kalam. Try reloading the page.');
       if (!res.ok) {
         UI.toast(res.error || 'Something went wrong.', 'error', res.code === 'NO_API_KEY' || res.code === 'BAD_KEY');
         return;
@@ -334,7 +334,7 @@
 
       if (target.kind !== 'readonly') UI.flash(action === 'translate' ? 'Translated' : 'Fixed');
     } catch (err) {
-      UI.toast(err instanceof QfError ? err.message : 'QuickFix failed: ' + (err?.message || err), 'error');
+      UI.toast(err instanceof QfError ? err.message : 'Kalam failed: ' + (err?.message || err), 'error');
     } finally {
       busy = false;
       UI.hideSpinner();
@@ -343,10 +343,10 @@
 
   function sendToBackground(msg) {
     if (!chrome.runtime?.id) {
-      throw new QfError('QuickFix was reloaded — refresh this page to use it again.');
+      throw new QfError('Kalam was reloaded — refresh this page to use it again.');
     }
     return chrome.runtime.sendMessage(msg).catch(() => {
-      throw new QfError('QuickFix was reloaded — refresh this page to use it again.');
+      throw new QfError('Kalam was reloaded — refresh this page to use it again.');
     });
   }
 
@@ -540,7 +540,7 @@
       panelEl = document.createElement('div');
       panelEl.className = 'card panel';
       panelEl.innerHTML =
-        '<div class="head"><span>QuickFix — read-only selection</span></div>' +
+        '<div class="head"><span>Kalam — read-only selection</span></div>' +
         '<div class="out"></div>' +
         '<div class="acts"><button class="copy">Copy</button><button class="close">Close</button></div>';
       panelEl.querySelector('.out').textContent = text;

@@ -78,8 +78,8 @@ decisions each have an ADR in [adr/](./adr/).
   Microsoft 365 Copilot licence give no API access.
 - Flash-class models answer a paragraph in 1–3 s; the previous 45 s timeout was far too long.
 
-## Known inconsistency to fix in the rename ticket
+## Known inconsistency (resolved by the rename ticket, #2)
 
-`README.md` still describes "Phase 3: a second provider (Azure OpenAI / OpenAI)" under *Not built
-yet* and carries the QuickFix name and "Powered by Google Gemini" throughout. Superseded by
-ADR 0002 and ADR 0005.
+`README.md` used to describe "Phase 3: a second provider (Azure OpenAI / OpenAI)" under *Not
+built yet* and carried the QuickFix name and "Powered by Google Gemini" throughout. Superseded by
+ADR 0002 and ADR 0005; the README now carries the parked list above and the "no middleman" line.
