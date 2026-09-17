@@ -5,7 +5,8 @@
 <!--
   Drives lib/ai.js (the provider seam) against a stubbed fetch and a stubbed
   chrome.storage.local, so runAction's result object, its error codes, what it
-  sends to Gemini and what it remembers in storage can all be checked without a
+  sends to Gemini and what it remembers in storage — and listModels' live list,
+  its 24 h cache and the BAD_MODEL self-heal — can all be checked without a
   key, a network, or an extension context. This is the test to run after
   touching lib/ai.js or lib/config.js.
 
@@ -96,7 +97,7 @@ window.chrome = {
 /* ----------------------------------------------------------- fetch stub */
 // Each call to fetch takes the next scripted response off the queue. A script
 // entry is a function (url, init) => Promise<Response>. What was sent is
-// recorded in __fetches as { url, headers, body (parsed) }.
+// recorded in __fetches as { url, headers, body (parsed), signal }.
 
 window.__fetches = [];
 let fetchScript = [];
@@ -106,7 +107,7 @@ const abortError = () => new DOMException('The user aborted a request.', 'AbortE
 window.fetch = (url, init = {}) => {
   let body = null;
   try { body = JSON.parse(init.body); } catch { /* not JSON */ }
-  window.__fetches.push({ url: String(url), headers: init.headers || {}, body });
+  window.__fetches.push({ url: String(url), headers: init.headers || {}, body, signal: init.signal });
   const next = fetchScript.shift();
   if (!next) return Promise.reject(new Error('harness: no scripted response left for fetch'));
   return next(url, init);
@@ -195,13 +196,21 @@ window.__harness = { advance, pendingTimers, check, reset, run, script, after, n
 </script>
 
 <script type="module">
-import { runAction, AiError } from '../lib/ai.js';
-import { getSettings, MAX_CHARS } from '../lib/config.js';
+import { runAction, listModels, AiError } from '../lib/ai.js';
+import { getSettings, MAX_CHARS, MODELS } from '../lib/config.js';
 
 const H = window.__harness;
 const { check, reset, script, reply, http, after, never, abortError, networkFailure, SETTINGS, results } = H;
 const run = (action, text, settings = SETTINGS) => H.run(runAction, action, text, settings);
+/** Run listModels to completion, driving fake time, and return { value } or { error }. */
+const list = (settings = SETTINGS, opts) => H.run((s, o) => listModels(s, o), settings, opts);
 const lastBody = () => window.__fetches[window.__fetches.length - 1]?.body;
+
+/** A Gemini models-list entry as the API shapes it. */
+const gm = (name, displayName, methods = ['generateContent'], extra = {}) =>
+  ({ name: `models/${name}`, displayName, supportedGenerationMethods: methods, ...extra });
+const modelsPage = (models, nextPageToken) => http(200, nextPageToken ? { models, nextPageToken } : { models });
+const ids = (models) => (models || []).map((m) => m.id);
 
 async function main() {
   // 1 — result shape.
@@ -272,7 +281,10 @@ async function main() {
     Array(6).fill(0).map(() => http(400, { error: { message: 'Unknown name "thinkingLevel"' } })), 'INVALID_ARGUMENT', { fetches: 6 });
   await expectError('401 → BAD_KEY', [http(401, {})], 'BAD_KEY', { fetches: 1 });
   await expectError('403 → BAD_KEY', [http(403, { error: { message: 'PERMISSION_DENIED' } })], 'BAD_KEY', { fetches: 1 });
-  await expectError('404 → BAD_MODEL', [http(404, { error: { message: 'model not found' } })], 'BAD_MODEL', { fetches: 1 });
+  // A 404 also triggers the one list refresh of the self-heal (section 17); with
+  // no list to be had, the original code surfaces.
+  await expectError('404 → BAD_MODEL (after the one list refresh)',
+    [http(404, { error: { message: 'model not found' } }), http(500)], 'BAD_MODEL', { fetches: 2 });
   await expectError('429 → RATE_LIMIT', [http(429, { error: { message: 'quota' } })], 'RATE_LIMIT', { fetches: 1 });
   await expectError('500 → SERVER', [http(500)], 'SERVER', { fetches: 1 });
   await expectError('503 → SERVER', [http(503, { error: { message: 'overloaded' } })], 'SERVER', { fetches: 1 });
@@ -400,6 +412,205 @@ async function main() {
   reset();
   window.__storage = { provider: 'gemini', onDeviceTranslate: true };
   check('getSettings() returns a stored onDeviceTranslate', (await getSettings()).onDeviceTranslate === true);
+
+  // 12 — the live model list: only content-generating models, Flash first,
+  // newest generation floating up, the recommended one marked.
+  const LIVE = [
+    gm('embedding-001', 'Embedding 001', ['embedContent']),
+    gm('gemini-3.1-pro-preview', 'Gemini 3.1 Pro Preview'),
+    gm('gemini-3.6-flash', 'Gemini 3.6 Flash'),
+    gm('imagen-4', 'Imagen 4', ['predict']),
+    gm('gemini-3.8-flash', 'Gemini 3.8 Flash'),
+    gm('gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite'),
+    gm('gemini-3.2-pro', 'Gemini 3.2 Pro'),
+    gm('aqa', 'Model that performs Attributed Question Answering', ['generateAnswer'])
+  ];
+  reset();
+  script(modelsPage(LIVE));
+  r = await list();
+  check('listModels keeps only models that support generateContent, Flash first, newest first within each group',
+    JSON.stringify(ids(r.value?.models)) === JSON.stringify([
+      'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.2-pro', 'gemini-3.1-pro-preview'
+    ]),
+    `got ${JSON.stringify(ids(r.value?.models))} ${r.error ? r.error.code + ': ' + r.error.message : ''}`);
+  check('listModels resolves to { models, fetchedAt, source: "live" } with labels from displayName',
+    r.value?.source === 'live' && typeof r.value.fetchedAt === 'number' && r.value.models[0]?.label === 'Gemini 3.8 Flash',
+    JSON.stringify(r.value));
+  check('the first Flash model is marked recommended when the hardcoded default is not offered',
+    r.value?.models.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.8-flash',
+    JSON.stringify(r.value?.models));
+  check('the models list is fetched with the key in the header, not the URL',
+    window.__fetches[0]?.url === 'https://generativelanguage.googleapis.com/v1beta/models' &&
+    window.__fetches[0]?.headers['x-goog-api-key'] === 'test-key',
+    JSON.stringify(window.__fetches[0]));
+
+  // 13 — the list is cached for 24 h under the key's fingerprint; the key
+  // itself never goes into the cache.
+  const cache = () => window.__storage.modelCache;
+  check('a live fetch is cached in storage as modelCache { models, fetchedAt, keyFingerprint }',
+    Array.isArray(cache()?.models) && cache().models.length === 5 && typeof cache().fetchedAt === 'number' &&
+    typeof cache().keyFingerprint === 'string' && cache().keyFingerprint.length > 0,
+    JSON.stringify(cache()));
+  check('the cache never contains the API key', !JSON.stringify(cache() ?? {}).includes('test-key'), JSON.stringify(cache()));
+
+  const HOUR = 60 * 60 * 1000;
+  const freshCache = () => JSON.parse(JSON.stringify(cache()));
+  const cachedFrom = freshCache();
+  window.__fetches = [];
+  r = await list();
+  check('a second call within 24 h with the same key returns the cache without fetching',
+    window.__fetches.length === 0 && r.value?.source === 'live' && r.value.fetchedAt === cachedFrom.fetchedAt &&
+    JSON.stringify(ids(r.value.models)) === JSON.stringify(ids(cachedFrom.models)),
+    `fetches = ${window.__fetches.length}, got ${JSON.stringify(r.value ?? r.error?.message)}`);
+
+  reset();
+  window.__storage = { modelCache: { ...cachedFrom, fetchedAt: Date.now() - 25 * HOUR } };
+  script(modelsPage([gm('gemini-4.0-flash', 'Gemini 4.0 Flash')]));
+  r = await list();
+  check('a call after 24 h fetches again and replaces the cache',
+    window.__fetches.length === 1 && ids(r.value?.models).join() === 'gemini-4.0-flash' && ids(cache()?.models).join() === 'gemini-4.0-flash',
+    `fetches = ${window.__fetches.length}, got ${JSON.stringify(r.value ?? r.error?.message)}`);
+
+  reset();
+  window.__storage = { modelCache: cachedFrom };
+  script(modelsPage([gm('gemini-4.0-flash', 'Gemini 4.0 Flash')]));
+  r = await list({ ...SETTINGS, apiKey: 'another-key' });
+  check('a fresh cache made with a different key is ignored: it fetches and re-fingerprints',
+    window.__fetches.length === 1 && ids(r.value?.models).join() === 'gemini-4.0-flash' &&
+    cache()?.keyFingerprint !== cachedFrom.keyFingerprint && !JSON.stringify(cache()).includes('another-key'),
+    `fetches = ${window.__fetches.length}, cache = ${JSON.stringify(cache())}`);
+
+  reset();
+  window.__storage = { modelCache: cachedFrom };
+  script(modelsPage([gm('gemini-4.0-flash', 'Gemini 4.0 Flash')]));
+  r = await list(SETTINGS, { force: true });
+  check('force: true bypasses a fresh cache', window.__fetches.length === 1 && ids(r.value?.models).join() === 'gemini-4.0-flash',
+    `fetches = ${window.__fetches.length}, got ${JSON.stringify(r.value ?? r.error?.message)}`);
+
+  reset();
+  script(modelsPage([gm('gemini-3.8-flash', 'Gemini 3.8 Flash'), gm('gemini-3.10-flash', 'Gemini 3.10 Flash'), gm('gemini-3.7-flash', 'Gemini 3.7 Flash')]));
+  r = await list();
+  check('the hardcoded default is the recommended one when the key offers it, even when a newer Flash exists',
+    r.value?.models.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.7-flash', JSON.stringify(r.value?.models));
+  check('ordering is numeric-aware: 3.10 floats above 3.8',
+    ids(r.value?.models).join() === 'gemini-3.10-flash,gemini-3.8-flash,gemini-3.7-flash', JSON.stringify(ids(r.value?.models)));
+
+  // 14 — any failure falls back to the hardcoded list and leaves a good cache alone.
+  const staleCache = { ...cachedFrom, fetchedAt: Date.now() - 25 * HOUR };
+  async function expectFallback(name, responses, { settings = SETTINGS, fetches } = {}) {
+    reset();
+    window.__storage = { modelCache: JSON.parse(JSON.stringify(staleCache)) };
+    script(...responses);
+    const out = await list(settings);
+    const v = out.value;
+    const pass = v && v.source === 'fallback' && v.fetchedAt === null &&
+      JSON.stringify(ids(v.models)) === JSON.stringify(ids(MODELS)) &&
+      JSON.stringify(cache()) === JSON.stringify(staleCache) &&
+      (fetches === undefined || window.__fetches.length === fetches);
+    check(name, pass, `got ${JSON.stringify(v ?? out.error?.message)}; fetches = ${window.__fetches.length}; cache = ${JSON.stringify(cache())}`);
+  }
+  await expectFallback('network failure → hardcoded list as source "fallback", stale cache untouched', [after(0, networkFailure())], { fetches: 1 });
+  await expectFallback('HTTP 403 → fallback', [http(403, { error: { message: 'PERMISSION_DENIED' } })]);
+  await expectFallback('HTTP 500 → fallback', [http(500)]);
+  await expectFallback('an empty models list → fallback', [modelsPage([])]);
+  await expectFallback('a list with nothing that generates content → fallback', [modelsPage([gm('embedding-001', 'Embedding', ['embedContent'])])]);
+  reset();
+  window.__storage = { modelCache: JSON.parse(JSON.stringify(staleCache)) };
+  script(never());
+  let listOutcome = null;
+  const hangingList = listModels(SETTINGS).then((value) => { listOutcome = value; });
+  await H.advance(19999);
+  const listPending = listOutcome === null;
+  await H.advance(1);
+  const listSettledAt20 = listOutcome !== null;
+  if (!listSettledAt20) await H.advance(600000);
+  await hangingList;
+  check('a hanging list fetch → fallback at exactly 20 s, stale cache untouched',
+    listPending && listSettledAt20 && listOutcome?.source === 'fallback' && JSON.stringify(cache()) === JSON.stringify(staleCache),
+    `pending at 19.999 s = ${listPending}, settled at 20 s = ${listSettledAt20}, got ${JSON.stringify(listOutcome)}`);
+  check('a failed list fetch leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+  await expectFallback('no API key → fallback without fetching', [modelsPage(LIVE)], { settings: { ...SETTINGS, apiKey: '' }, fetches: 0 });
+  check('the hardcoded fallback marks the default model recommended',
+    MODELS.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.7-flash', JSON.stringify(MODELS));
+
+  // 15 — pagination is followed until there is no nextPageToken.
+  reset();
+  script(modelsPage([gm('gemini-3.2-pro', 'Gemini 3.2 Pro')], 'page-2'), modelsPage([gm('gemini-3.8-flash', 'Gemini 3.8 Flash')]));
+  r = await list();
+  check('a nextPageToken is followed and the pages are merged before ordering',
+    window.__fetches.length === 2 && window.__fetches[1]?.url.includes('pageToken=page-2') &&
+    ids(r.value?.models).join() === 'gemini-3.8-flash,gemini-3.2-pro',
+    `fetches = ${JSON.stringify(window.__fetches.map((f) => f.url))}, got ${JSON.stringify(ids(r.value?.models))}`);
+
+  // 16 — the stale-model check in getSettings prefers the cached live list:
+  // a model Google offers but the built-in list has never heard of is kept,
+  // and one that is in neither falls back to the default.
+  const liveCache = { models: [{ id: 'gemini-4.0-flash', label: 'Gemini 4.0 Flash', recommended: true }], fetchedAt: Date.now(), keyFingerprint: 'x' };
+  reset();
+  window.__storage = { model: 'gemini-4.0-flash', modelCache: liveCache };
+  check('getSettings keeps a saved model that is in the cached live list but not the hardcoded one',
+    (await getSettings()).model === 'gemini-4.0-flash', `model = ${(await getSettings()).model}`);
+  reset();
+  window.__storage = { model: 'gemini-3.6-flash', modelCache: liveCache };
+  check('getSettings keeps a saved model that is in the hardcoded list when the live cache lacks it',
+    (await getSettings()).model === 'gemini-3.6-flash', `model = ${(await getSettings()).model}`);
+  reset();
+  window.__storage = { model: 'gemini-retired', modelCache: liveCache };
+  check('getSettings falls back to the default when the saved model is in neither list',
+    (await getSettings()).model === 'gemini-3.7-flash', `model = ${(await getSettings()).model}`);
+
+  // 17 — a retired model heals itself: BAD_MODEL refreshes the list once
+  // (bypassing the cache), saves the recommended model, retries once.
+  const notFound = () => http(404, { error: { message: 'models/gemini-test-model is not found' } });
+  const urlOf = (i) => window.__fetches[i]?.url || '';
+  reset();
+  window.__storage = { modelCache: { ...cachedFrom, fetchedAt: Date.now() } }; // fresh cache: must be bypassed
+  script(notFound(), modelsPage(LIVE), reply('healed'));
+  r = await run('grammar', 'some text');
+  check('BAD_MODEL → one list fetch, one retry with the recommended model, success returned',
+    r.value?.text === 'healed' && window.__fetches.length === 3 &&
+    urlOf(0).includes('/gemini-test-model:generateContent') &&
+    urlOf(1) === 'https://generativelanguage.googleapis.com/v1beta/models' &&
+    urlOf(2).includes('/gemini-3.8-flash:generateContent'),
+    `got ${JSON.stringify(r.value ?? r.error?.code)}, fetches = ${JSON.stringify(window.__fetches.map((f) => f.url))}`);
+  check('the recommended model is saved as the model setting and the cache is replaced',
+    window.__storage.model === 'gemini-3.8-flash' && ids(cache()?.models)[0] === 'gemini-3.8-flash',
+    JSON.stringify({ model: window.__storage.model, cache: ids(cache()?.models) }));
+  check('every request in the BAD_MODEL path carries the same deadline signal',
+    window.__fetches.every((f) => f.signal && f.signal === window.__fetches[0].signal),
+    `distinct signals = ${new Set(window.__fetches.map((f) => f.signal)).size}`);
+  check('a healed action leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  await expectError('BAD_MODEL whose list refresh fails → the original BAD_MODEL, no retry',
+    [notFound(), http(500)], 'BAD_MODEL', { fetches: 2 });
+  check('a failed refresh leaves the model setting alone', window.__storage.model === undefined, JSON.stringify(window.__storage));
+  await expectError('BAD_MODEL whose retry fails → the retry\'s error, no third attempt',
+    [notFound(), modelsPage(LIVE), http(429, { error: { message: 'quota' } })], 'RATE_LIMIT', { fetches: 3 });
+  await expectError('BAD_MODEL twice → BAD_MODEL after exactly one retry',
+    [notFound(), modelsPage(LIVE), notFound()], 'BAD_MODEL', { fetches: 3 });
+  await expectError('BAD_MODEL when the fresh list still recommends the same model → BAD_MODEL without a retry',
+    [notFound(), modelsPage([gm('gemini-test-model', 'Test')])], 'BAD_MODEL', { fetches: 2 });
+
+  // The heal shares the action's 20 s budget: 15 s to get the 404, then a
+  // hanging list fetch → TIMEOUT at 20 s from the start, not 35 s.
+  reset();
+  script(after(15000, notFound()), never());
+  outcome = null;
+  const healing = runAction('grammar', 'hello there', SETTINGS).then(
+    (value) => { outcome = { value }; },
+    (error) => { outcome = { error }; }
+  );
+  await H.advance(19999);
+  const stillHealing = outcome === null;
+  await H.advance(1);
+  const healSettledAt20 = outcome !== null;
+  if (!healSettledAt20) await H.advance(600000);
+  await healing;
+  check('a hanging list fetch during the heal → TIMEOUT at 20 s of the action, not a fresh budget',
+    stillHealing && healSettledAt20 && outcome?.error?.code === 'TIMEOUT' && window.__fetches.length === 2 &&
+    window.__fetches[0].signal === window.__fetches[1].signal,
+    `pending at 19.999 s = ${stillHealing}, settled at 20 s = ${healSettledAt20}, code = ${outcome?.error?.code}, fetches = ${window.__fetches.length}`);
+  check('the timed-out heal leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
 
   const failed = results.filter((x) => x.startsWith('FAIL')).length;
   document.getElementById('out').textContent =

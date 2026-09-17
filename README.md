@@ -121,11 +121,14 @@ parse errors across every JS file — useful because a syntax error in a service
 otherwise silent until you open its console.
 
 **`provider-test.html` — run this after touching `lib/ai.js` or `lib/config.js`.** It loads
-the provider seam (`runAction`, `getSettings`) as a real ES module against a stubbed `fetch` and
-`chrome.storage.local`, then checks the result object, every error code the provider can throw
-(key, model, rate limit, server, network, blocked, truncated, empty), what is sent to Gemini,
-the thinking-variant discovery and what it remembers in storage, and the new settings defaults.
-Time is faked, so the 20 s hard stop is exercised in milliseconds. Same headless command as
+the provider seam (`runAction`, `listModels`, `getSettings`) as a real ES module against a
+stubbed `fetch` and `chrome.storage.local`, then checks the result object, every error code the
+provider can throw (key, model, rate limit, server, network, blocked, truncated, empty), what is
+sent to Gemini, the thinking-variant discovery and what it remembers in storage, the settings
+defaults, and the live model list: filtering, ordering, the 24 h cache and its key fingerprint,
+pagination, the built-in fallback, the `BAD_MODEL` self-heal (one refresh, one retry, one
+deadline) and the stale-model check preferring the cached live list. Time is faked, so the
+20 s hard stop is exercised in milliseconds. Same headless command as
 above with `provider-test.html` in place of `smoke-test.html` (and `--virtual-time-budget=10000`
 is plenty); the title reads `ALL PASS` or `FAILED n` the same way.
 
@@ -156,12 +159,12 @@ content/
 lib/
   config.js                settings schema, model/language/tone lists, storage helpers
   prompts.js               system instructions for both actions
-  ai.js                    Gemini client, error mapping, output cleanup
+  ai.js                    Gemini client, live model list, error mapping, output cleanup
 options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
   smoke-test.html          drives content.js against a stubbed chrome API, with fake time (55 assertions)
-  provider-test.html       drives lib/ai.js against stubbed fetch + storage, with fake time (54 assertions)
+  provider-test.html       drives lib/ai.js against stubbed fetch + storage, with fake time (90 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/
@@ -180,6 +183,14 @@ dist/                        build output — package/, the zip, and the listing
 service worker calls the Gemini REST API → response goes back → content script writes it into
 the field. The content script never calls the API itself: page CSP would block it on many sites,
 and this keeps the API key out of anything the page can reach.
+
+**Live model list.** The model picker is fetched from Gemini (`listModels` in `lib/ai.js`, behind
+the `QF_LIST_MODELS` message), filtered to models that can generate content, Flash first, and
+cached for 24 h in `chrome.storage.local` under `modelCache` with a fingerprint of the key it was
+fetched with, never the key itself. A `BAD_MODEL` error mid-action refreshes the list once on the
+action's own 20 s deadline, saves the recommended model and retries once, so a retired model can
+never strand a user ([ADR 0004](docs/adr/0004-self-healing-model-list-and-never-stuck.md)). The
+hardcoded `MODELS` list is only the offline fallback.
 
 **Frame routing.** `Alt+G` is a browser-level command, so it arrives at the service worker, which
 broadcasts to every frame in the active tab. Each frame answers only if it owns focus

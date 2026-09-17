@@ -12,7 +12,7 @@
  */
 
 import { getSettings } from '../lib/config.js';
-import { runAction, AiError } from '../lib/ai.js';
+import { runAction, listModels, AiError } from '../lib/ai.js';
 
 const MENU_ROOT = 'qf-root';
 const MENU_GRAMMAR = 'qf-grammar';
@@ -117,6 +117,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // async
   }
 
+  if (msg?.type === 'QF_LIST_MODELS') {
+    handleListModels(msg).then(sendResponse);
+    return true; // async
+  }
+
   if (msg?.type === 'QF_OPEN_OPTIONS') {
     chrome.runtime.openOptionsPage();
     sendResponse({ ok: true });
@@ -142,5 +147,22 @@ async function handleAi(msg) {
     }
     console.error('[Kalam]', err);
     return { ok: false, id, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
+  }
+}
+
+/**
+ * The live model list for the options page (ADR 0004). `force` bypasses the
+ * 24 h cache — the Refresh models button. listModels never throws for a
+ * failed fetch (it falls back to the built-in list), so an error here is a
+ * genuine bug, not an offline user.
+ */
+async function handleListModels(msg) {
+  try {
+    const settings = await getSettings();
+    const { models, fetchedAt, source } = await listModels(settings, { force: Boolean(msg.force) });
+    return { ok: true, models, fetchedAt, source };
+  } catch (err) {
+    console.error('[Kalam]', err);
+    return { ok: false, error: 'Could not load the model list: ' + (err?.message || err) };
   }
 }

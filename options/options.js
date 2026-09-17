@@ -1,4 +1,4 @@
-import { DEFAULTS, MODELS, TONES, LANGUAGES, getSettings, saveSettings } from '../lib/config.js';
+import { DEFAULTS, MODELS, TONES, LANGUAGES, getSettings, saveSettings, recommendedModel } from '../lib/config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -34,6 +34,66 @@ const settings = await getSettings();
 for (const [key, prop] of Object.entries(FIELDS)) {
   $(key)[prop] = settings[key] ?? DEFAULTS[key];
 }
+
+/* ------------------------------------------------------------ model list */
+
+// The picker starts on the built-in list (above) so the page is never empty,
+// then swaps to the live list (ADR 0004). The user's choice stays selected as
+// long as it is still offered; otherwise the recommended model is selected and
+// the note says why. A saved model only the live list knows has no option yet
+// on first load (picker.value is ''), so the saved setting is the fallback.
+async function loadModels({ force = false } = {}) {
+  const picker = $('model');
+  const wanted = picker.value || settings.model;
+  $('refreshModels').disabled = true;
+  setModelsNote(force ? 'Refreshing…' : 'Loading the model list…');
+
+  try {
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'QF_LIST_MODELS', force });
+    } catch {
+      res = null;
+    }
+    const { models, fetchedAt, source } = res?.ok ? res : { models: MODELS, fetchedAt: null, source: 'fallback' };
+
+    fillSelect(picker, models.map((m) => ({ id: m.id, label: labelWithRecommended(m) })));
+    const stillOffered = models.some((m) => m.id === wanted);
+    picker.value = stillOffered ? wanted : recommendedModel(models).id;
+
+    const when = source === 'live'
+      ? `Updated ${relativeTime(fetchedAt)}.`
+      : $('apiKey').value.trim() ? 'Built-in list — could not reach Gemini.' : 'Built-in list — add an API key to load the live list.';
+    setModelsNote(stillOffered ? when : `${when} Your saved model (${wanted}) is no longer available; the recommended one is selected — save to keep it.`, !stillOffered);
+  } finally {
+    $('refreshModels').disabled = false;
+  }
+}
+
+function labelWithRecommended(m) {
+  return m.recommended && !/recommended/i.test(m.label) ? `${m.label} — recommended` : m.label;
+}
+
+function setModelsNote(text, warn = false) {
+  const el = $('modelsNote');
+  el.textContent = text;
+  el.className = 'hint' + (warn ? ' bad' : '');
+}
+
+function relativeTime(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  return `${hours} h ago`;
+}
+
+// Refresh saves first, like Test, so a key pasted moments ago is the one used.
+$('refreshModels').addEventListener('click', async () => {
+  await save();
+  await loadModels({ force: true });
+});
+loadModels().catch((err) => setModelsNote('Could not load the model list: ' + err.message, true));
 
 /* ------------------------------------------------------------------ save */
 
