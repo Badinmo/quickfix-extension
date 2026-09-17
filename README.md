@@ -67,8 +67,10 @@ by people your Google Workspace/organisation allows (or anyone, if your account 
 
 4. **Create a new item**, upload `dist\kalam-webstore.zip`, and fill in the Store Listing and
    Privacy Practices tabs using `docs/store-listing.md` — every field, permission justification,
-   and the single-purpose description are written out ready to paste in. Use
-   `dist/screenshot-settings.png` as the required screenshot.
+   and the single-purpose description are written out ready to paste in. Use the four
+   1280x800 screenshots in `docs/images/listing-*.png` (toolbar, grammar fix, translate,
+   onboarding panel) — see **Listing screenshots** below for what they show and how to
+   regenerate them.
 
 5. **Set visibility to Unlisted** (Distribution tab) before submitting.
 
@@ -79,6 +81,37 @@ by people your Google Workspace/organisation allows (or anyone, if your account 
 7. **Renaming later:** both the manifest's `name` (via a new package upload) and the Store
    listing's title (Store Listing tab, independent of the manifest) can be changed anytime after
    publishing — neither creates a new listing or changes the ID.
+
+### Listing screenshots
+
+`docs/images/listing-*.png` are the four Chrome Web Store screenshots (1280x800, checked
+into the repo — unlike `dist/`, these are not build output):
+
+| File | Shows |
+|---|---|
+| `listing-toolbar.png` | The floating toolbar next to a text selection. |
+| `listing-grammar-fix.png` | A grammar-fix result: the replaced text and the "Fixed" success flash. |
+| `listing-translate.png` | A translate result: the replaced text and the "Translated" success flash. |
+| `listing-onboarding.png` | The in-page onboarding panel that opens the first time an action runs with no key set. |
+
+They were captured by driving `test/playground.html` in headless Edge over the DevTools
+Protocol (Page.navigate, a same-world `Runtime.evaluate` to make a selection and click the
+toolbar button, `Page.captureScreenshot`) with the real extension loaded via
+`--load-extension`, served over a throwaway local HTTP server rather than `file://` so no
+"Allow access to file URLs" toggle is needed. The toolbar and onboarding shots need no
+network and no key — they exercise the real, unmodified code paths (`NO_API_KEY` genuinely
+opens the onboarding panel). The two result shots need a successful round trip, which this
+environment has no live Gemini key for; those two were captured with a throwaway one-line
+patch to `sendToBackground` in `content/content.js` that short-circuits `QF_AI` messages to
+a canned success reply, reverted with `git checkout -- content/content.js` immediately
+after — that stub must never be present in a commit.
+
+To regenerate: write an equivalent driver script (Node's built-in `fetch`/`WebSocket` are
+enough, no npm packages needed) against the headless-Edge pattern in
+`test/smoke-test.html`'s header comment, but add `--load-extension=<repo root>
+--disable-extensions-except=<repo root>` and drive the page over CDP instead of using the
+static `--screenshot`/`--dump-dom` flags, since these shots need interaction (a selection,
+a click) rather than a page's initial render.
 
 ## Use
 
@@ -211,7 +244,8 @@ docs/
   guide.html                the beginner install/use walkthrough (also published as an Artifact)
   store-listing.md           listing copy, permission justifications, single-purpose text
   privacy-policy.md          the Store's required privacy policy, ready to host
-dist/                        build output — package/, the zip, and the listing screenshot
+  images/listing-*.png       the four Store listing screenshots, checked in (see below)
+dist/                        build output — package/ and the zip
                               (not checked in; regenerate with tools/build-package.ps1)
 ```
 

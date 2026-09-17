@@ -399,7 +399,6 @@
     <a href="#help">F · If something's wrong</a>
     <a href="#package">G · Prepare a submission</a>
     <a href="#chrome-store">H · Publish to Chrome</a>
-    <a href="#edge-store">I · Publish to Edge</a>
   </div>
 </nav>
 
@@ -536,12 +535,13 @@
         </p>
         <p>
           If that's the situation, the working path on a managed device is usually a private,
-          unlisted listing in the Chrome Web Store or Microsoft Edge Add-ons store instead of Load
-          unpacked — installed like any other extension, so the Developer-Mode block never comes
-          into play. That's a separate one-time setup step — see
-          <a href="#package">Part G</a> onward, below — rather than something to solve from this
-          guide's Part B. Once it's live, IT allowlists the Store-assigned ID and you install from
-          the private Store link instead of steps 1–4 above.
+          unlisted Chrome Web Store listing instead of Load unpacked — installed like any other
+          extension, so the Developer-Mode block never comes into play. That's a separate
+          one-time setup step — see <a href="#package">Part G</a> onward, below — rather than
+          something to solve from this guide's Part B. Once it's live, IT allowlists the
+          Store-assigned ID and you install from the private Store link instead of steps 1–4
+          above. On a managed Edge browser this still works: Edge installs Chrome Web Store
+          items directly once "Allow extensions from other stores" is turned on (see Part G).
         </p>
       </div>
     </div>
@@ -754,19 +754,20 @@
       <h2 class="part-title">Prepare a submission</h2>
     </div>
     <p class="part-sub">
-      One-time prep shared by both stores below — do this once, then Parts H and I each take
-      about ten minutes on top.
+      Kalam publishes to the Chrome Web Store only — there is no separate Microsoft Edge
+      Add-ons listing. Edge users install the same Chrome Web Store item; see the callout
+      below.
     </p>
 
     <div class="tablewrap" style="margin-bottom:22px">
       <table>
         <thead>
-          <tr><th></th><th>Chrome Web Store</th><th>Microsoft Edge Add-ons</th></tr>
+          <tr><th></th><th>Chrome Web Store</th></tr>
         </thead>
         <tbody>
-          <tr><td>Cost</td><td>One-time $5 developer fee</td><td>Free</td></tr>
-          <tr><td>Typical review time</td><td>Hours to a few days</td><td>Around a week, can vary</td></tr>
-          <tr><td>Installs into</td><td>Chrome (and Edge, <em>if</em> your org allows other stores — often not, on a managed device)</td><td>Edge only</td></tr>
+          <tr><td>Cost</td><td>One-time $5 developer fee</td></tr>
+          <tr><td>Typical review time</td><td>Hours to a few days</td></tr>
+          <tr><td>Installs into</td><td>Chrome directly, and Edge after the one-time step below</td></tr>
         </tbody>
       </table>
     </div>
@@ -774,13 +775,13 @@
     <div class="callout tip">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
       <div>
-        <span class="head">Why both?</span>
+        <span class="head">Works in Edge too</span>
         <p>
-          On a managed Edge browser, IT commonly locks the "allow extensions from other stores"
-          setting off — meaning a Chrome Web Store item won't install in Edge even if it's
-          allowlisted by ID. If your work browser is Edge, Part I is the one that actually matters;
-          Part H covers Chrome. Doing both means you're covered regardless of which one IT ends up
-          unlocking.
+          Edge can install Chrome Web Store items directly: open <code class="inline">edge://extensions</code>,
+          turn on <strong>Allow extensions from other stores</strong>, then open the item's Chrome
+          Web Store link in Edge and click <strong>Get</strong>. No separate Edge submission is
+          needed or planned — see <code class="inline">docs/decisions.md</code>. On a managed
+          device where IT has locked that setting off, check with them before relying on this path.
         </p>
       </div>
     </div>
@@ -879,19 +880,22 @@
       <li class="step">
         <span class="step-num">4</span>
         <div class="step-body">
-          <p>On the <strong>Store Listing</strong> tab, fill in the title, summary, description, category, and language, and upload the screenshot — all written out ready to paste in:</p>
+          <p>On the <strong>Store Listing</strong> tab, fill in the title, summary, description, category, and language, and upload the four screenshots — all written out ready to paste in:</p>
           <div class="copyrow">
             <code class="inline">docs\store-listing.md</code>
             <button class="copy" data-copy="C:\Users\motha\Projects\Extensions\New folder\quickfix-extension\quickfix-extension\docs\store-listing.md">
               <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
               Copy path
             </button>
-            <code class="inline">dist\screenshot-settings.png</code>
-            <button class="copy" data-copy="C:\Users\motha\Projects\Extensions\New folder\quickfix-extension\quickfix-extension\dist\screenshot-settings.png">
+            <code class="inline">docs\images\listing-*.png</code>
+            <button class="copy" data-copy="C:\Users\motha\Projects\Extensions\New folder\quickfix-extension\quickfix-extension\docs\images">
               <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
               Copy path
             </button>
           </div>
+          <p class="step-detail">Four images, 1280x800: the toolbar on a selection, a grammar-fix
+          result, a translate result, and the onboarding panel. See
+          <code class="inline">README.md</code> for how they were made and how to regenerate them.</p>
         </div>
       </li>
       <li class="step">
@@ -935,110 +939,6 @@
           pinned in the extension's manifest entirely. Send this new ID to whoever manages your
           organisation's allowlist — the earlier one only applies to unpacked/Developer-Mode
           loading, which is a different install path.
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <hr class="rule" />
-
-  <!-- ============================================================ I -->
-  <section class="part" id="edge-store">
-    <div class="part-head">
-      <span class="part-letter">I</span>
-      <h2 class="part-title">Publish to Microsoft Edge Add-ons</h2>
-    </div>
-    <p class="part-sub">
-      The same idea as Part H, on Microsoft's own dashboard — likely the one that actually matters
-      if your work browser is Edge.
-    </p>
-
-    <ol class="steps">
-      <li class="step">
-        <span class="step-num">1</span>
-        <div class="step-body">
-          <p>Open the Microsoft Edge Add-ons developer dashboard (part of Partner Center):</p>
-          <div class="copyrow">
-            <code class="inline">partner.microsoft.com/dashboard/microsoftedge</code>
-            <button class="copy" data-copy="https://partner.microsoft.com/en-us/dashboard/microsoftedge/overview">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-              Copy address
-            </button>
-          </div>
-        </div>
-      </li>
-      <li class="step">
-        <span class="step-num">2</span>
-        <div class="step-body">
-          <p>Sign in with a Microsoft account and register as an extension developer — free, no fee.</p>
-          <p class="step-detail">
-            Use a personal Microsoft account (e.g. an outlook.com/hotmail address) rather than your
-            NHS work account, if you have one — it keeps this personal project separate from your
-            trust's own Microsoft tenant.
-          </p>
-        </div>
-      </li>
-      <li class="step">
-        <span class="step-num">3</span>
-        <div class="step-body">
-          <p>Click <strong>Create new extension</strong>, and upload the exact same zip from Part G — no changes needed, Edge accepts the same package format as Chrome:</p>
-          <div class="copyrow">
-            <code class="inline">C:\Users\motha\Projects\Extensions\New folder\quickfix-extension\quickfix-extension\dist\kalam-webstore.zip</code>
-            <button class="copy" data-copy="C:\Users\motha\Projects\Extensions\New folder\quickfix-extension\quickfix-extension\dist\kalam-webstore.zip">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-              Copy path
-            </button>
-          </div>
-        </div>
-      </li>
-      <li class="step">
-        <span class="step-num">4</span>
-        <div class="step-body">
-          <p>On the <strong>Properties</strong> tab, set category to Productivity and paste the same privacy policy URL from Part G.</p>
-        </div>
-      </li>
-      <li class="step">
-        <span class="step-num">5</span>
-        <div class="step-body">
-          <p>On the <strong>Store listings</strong> tab, fill in the display name and description from <code class="inline">docs\store-listing.md</code>, and upload the same screenshot as Part H:</p>
-          <div class="copyrow">
-            <code class="inline">dist\screenshot-settings.png</code>
-            <button class="copy" data-copy="C:\Users\motha\Projects\Extensions\New folder\quickfix-extension\quickfix-extension\dist\screenshot-settings.png">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-              Copy path
-            </button>
-          </div>
-        </div>
-      </li>
-      <li class="step">
-        <span class="step-num">6</span>
-        <div class="step-body">
-          <p>Set <strong>Visibility</strong> to Private/Unlisted (wording varies by dashboard version) — not Public.</p>
-        </div>
-      </li>
-      <li class="step">
-        <span class="step-num">7</span>
-        <div class="step-body">
-          <p>Submit for certification. Microsoft's review is separate from Google's — expect roughly a week, though it varies.</p>
-        </div>
-      </li>
-      <li class="step">
-        <span class="step-num">8</span>
-        <div class="step-body">
-          <p>Once certified, copy the item's extension ID and Store URL from the dashboard.</p>
-        </div>
-      </li>
-    </ol>
-
-    <div class="callout ok">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-      <div>
-        <span class="head">Installing once it's live</span>
-        <p>
-          Open the Edge Add-ons URL in Edge and click <strong>Get</strong>. If your organisation
-          blocked "Load unpacked" but allows Microsoft-vetted Edge Add-ons store items, this is the
-          path that actually gets Kalam running on your work laptop — give IT this ID (separate
-          from both the unpacked ID and the Chrome Web Store ID) to allowlist.
         </p>
       </div>
     </div>

@@ -21,10 +21,22 @@ $zipPath = Join-Path $root 'dist\kalam-webstore.zip'
 # Only what the browser loads. Tests, docs, tools and the repo metadata stay out.
 $packageItems = @('manifest.json', 'background', 'content', 'lib', 'options', 'popup', 'offscreen', 'icons')
 
+# images/ holds the onboarding step screenshots (onboarding-1.png .. onboarding-4.png).
+# They are optional (README: "with no file there is no image and no broken icon"), so
+# this folder may legitimately not exist yet; only stage it when it does.
+$optionalItems = @('images')
+
 if (Test-Path $packageDir) { Remove-Item -Path $packageDir -Recurse -Force }
 New-Item -ItemType Directory -Path $packageDir | Out-Null
 foreach ($item in $packageItems) {
     Copy-Item -Path (Join-Path $root $item) -Destination (Join-Path $packageDir $item) -Recurse
+}
+foreach ($item in $optionalItems) {
+    $src = Join-Path $root $item
+    if (Test-Path $src) {
+        Copy-Item -Path $src -Destination (Join-Path $packageDir $item) -Recurse
+        "staged optional $item"
+    }
 }
 
 # Plain UTF-8 bytes, no BOM: Set-Content -Encoding UTF8 would prepend one, and

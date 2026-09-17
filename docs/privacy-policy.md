@@ -1,6 +1,6 @@
 # Kalam Privacy Policy
 
-*Last updated: 2026-09-17*
+*Last updated: 2026-09-18*
 
 Kalam is a browser extension for personal use that fixes grammar and translates text
 inside web pages. This policy explains what it does and does not do with your data.
@@ -32,6 +32,19 @@ describe.
 
 No other server, analytics service, or third party ever receives your text. Kalam has no
 backend of its own, so there is nothing in between your browser and your AI account.
+Gemini is the only cloud provider Kalam supports today.
+
+## On-device translate (optional, experimental)
+
+On a machine that supports it, Settings offers an experimental "On-device translate"
+toggle, off by default. When it is turned on and the browser's own built-in Translator
+supports the language pair, a translate action runs entirely on your machine using that
+built-in model: the selected text is never sent to Gemini, or anywhere else, for that
+action. When the toggle is off, or the pair isn't supported, translate goes to Gemini as
+described above. This setting never affects the grammar action, which always uses
+Gemini. The listing describes this feature as available in Chrome; it happens to also
+work in Microsoft Edge (version 148 and later), which ships its own implementation of
+the same browser API.
 
 ## What Kalam stores
 
