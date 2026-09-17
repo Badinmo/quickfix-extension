@@ -13,6 +13,7 @@ const FIELDS = {
   targetLanguage: 'value',
   secondaryLanguage: 'value',
   autoSwapLanguage: 'checked',
+  onDeviceTranslate: 'checked',
   tone: 'value',
   customInstructions: 'value',
   showToolbar: 'checked',
@@ -90,11 +91,13 @@ function labelWithRecommended(m) {
   return m.recommended && !/recommended/i.test(m.label) ? `${m.label} — recommended` : m.label;
 }
 
-function setModelsNote(text, warn = false) {
-  const el = $('modelsNote');
+/** A hint line under a field: plain by default, `.bad` (red) when it's a warning. Shared by the model and on-device notes. */
+function setHint(id, text, warn = false) {
+  const el = $(id);
   el.textContent = text;
   el.className = 'hint' + (warn ? ' bad' : '');
 }
+const setModelsNote = (text, warn) => setHint('modelsNote', text, warn);
 
 function relativeTime(ts) {
   const mins = Math.round((Date.now() - ts) / 60000);
@@ -106,6 +109,64 @@ function relativeTime(ts) {
 
 $('refreshModels').addEventListener('click', () => loadModelsOrNote({ force: true }));
 loadModelsOrNote();
+
+/* ------------------------------------------------------------ on-device */
+
+// On-device translate (ADR 0003): greyed with the reason when the browser or
+// the current pair can't do it; a plain confirm() when it can but needs a
+// download first (the full consent flow with size/progress is #10). The pair
+// is always secondary → target — the direction auto-swap produces.
+let onDeviceSeq = 0;
+let lastStatus = null;
+
+async function refreshOnDeviceStatus() {
+  const toggle = $('onDeviceTranslate');
+  const seq = ++onDeviceSeq;
+  setOnDeviceNote('Checking this browser…');
+
+  let status;
+  try {
+    status = await chrome.runtime.sendMessage({
+      type: 'QF_ON_DEVICE_STATUS',
+      sourceLanguage: $('secondaryLanguage').value,
+      targetLanguage: $('targetLanguage').value
+    });
+  } catch {
+    status = null;
+  }
+  if (seq !== onDeviceSeq) return; // superseded by a newer language change
+  if (!status || typeof status.supported !== 'boolean') {
+    lastStatus = null;
+    toggle.disabled = true;
+    setOnDeviceNote('Could not check this browser for on-device support.', true);
+    return;
+  }
+
+  // Disabling greys the control out, but the saved value is left alone: a
+  // pair that stops being offered because of a language change should not
+  // silently erase the user's setting, since runAction falls back to Gemini
+  // on its own whenever the pair is unavailable.
+  lastStatus = status;
+  toggle.disabled = !status.supported;
+  setOnDeviceNote(status.reason || '', !status.supported);
+}
+
+const setOnDeviceNote = (text, warn) => setHint('onDeviceNote', text, warn);
+
+// Turning it on when the pack isn't downloaded yet asks first, with the size
+// (#10 is the full consent + progress + cancel flow; this is the minimal
+// stand-in the spec asks for). Declining leaves the toggle off.
+$('onDeviceTranslate').addEventListener('change', () => {
+  const toggle = $('onDeviceTranslate');
+  if (!toggle.checked || lastStatus?.availability !== 'downloadable') return;
+  const target = $('targetLanguage').value;
+  const ok = confirm(`This will download a language pack for ${target}. Continue?`);
+  if (!ok) toggle.checked = false;
+});
+
+$('targetLanguage').addEventListener('change', refreshOnDeviceStatus);
+$('secondaryLanguage').addEventListener('change', refreshOnDeviceStatus);
+refreshOnDeviceStatus();
 
 /* ------------------------------------------------------------------ save */
 

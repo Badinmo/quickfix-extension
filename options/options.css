@@ -108,6 +108,8 @@ input:focus, select:focus, textarea:focus {
 .check:last-child { margin-bottom: 0; }
 .check input { margin-top: 3px; flex: none; }
 .check strong { display: block; font-weight: 600; }
+.check:has(input:disabled) { opacity: 0.55; }
+.check:has(input:disabled) input { cursor: not-allowed; }
 
 button {
   font: inherit;

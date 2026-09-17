@@ -126,22 +126,29 @@ The page title becomes `ALL PASS` or `FAILED n`. `test/syntax-check.html` is the
 parse errors across every JS file — useful because a syntax error in a service worker is
 otherwise silent until you open its console.
 
-**`provider-test.html` — run this after touching `lib/ai.js`, `lib/config.js` or
-`lib/never-stuck.js`.** It loads the provider seam (`runAction`, `validateKey`, `listModels`,
-`getSettings`) as a real ES module against a stubbed `fetch` and `chrome.storage.local`, then
-checks the result object, every error code the provider can throw (key, model, rate limit,
-server, network, blocked, truncated, empty), what is sent to Gemini, the thinking-variant
-discovery and what it remembers in storage, the settings defaults, the live model list:
-filtering, ordering, the 24 h cache and its key fingerprint, pagination, the built-in fallback,
-the `BAD_MODEL` self-heal (one refresh, one retry, one deadline) and the stale-model check
-preferring the cached live list; validate key (one GET with the key in the header, 400-key /
-401 / 403 / API-disabled → `BAD_KEY`, rate limit, server, network, a hang → `TIMEOUT` at 20 s,
-a blank key → `NO_API_KEY` with no fetch) and the `apiKey` override on `listModels`; and the
-never-stuck helper the options page wraps the Test button in (Still working at 5 s, Cancel,
-hard stop at 20 s, late replies dropped). 119 assertions. Time is faked, so the 20 s hard stop
-is exercised in milliseconds. Same headless command as above with `provider-test.html` in place
-of `smoke-test.html` (and `--virtual-time-budget=10000` is plenty); the title reads `ALL PASS`
-or `FAILED n` the same way.
+**`provider-test.html` — run this after touching `lib/ai.js`, `lib/config.js`,
+`lib/on-device.js`, `lib/on-device-offscreen.js` or `lib/never-stuck.js`.** It loads the
+provider seam (`runAction`, `validateKey`, `listModels`, `getSettings`, `onDeviceStatus`) as a
+real ES module against a stubbed `fetch` and `chrome.storage.local`, then checks the result
+object, every error code the provider can throw (key, model, rate limit, server, network,
+blocked, truncated, empty), what is sent to Gemini, the thinking-variant discovery and what it
+remembers in storage, the settings defaults, the live model list: filtering, ordering, the 24 h
+cache and its key fingerprint, pagination, the built-in fallback, the `BAD_MODEL` self-heal (one
+refresh, one retry, one deadline) and the stale-model check preferring the cached live list;
+validate key (one GET with the key in the header, 400-key / 401 / 403 / API-disabled →
+`BAD_KEY`, rate limit, server, network, a hang → `TIMEOUT` at 20 s, a blank key → `NO_API_KEY`
+with no fetch) and the `apiKey` override on `listModels`; the on-device translate route (ADR
+0003) with a stubbed Translator/LanguageDetector pair: route choice (pair available → the
+on-device result with no fetch; unavailable, absent or throwing → the Gemini fallback; grammar
+always Gemini; no key + on-device translate still runs; no key + grammar → `NO_API_KEY`),
+auto-swap and source detection, the shared 20 s deadline (a hanging on-device call → `TIMEOUT`,
+never a fresh Gemini budget), the `BAD_MODEL` heal never firing on the on-device path,
+`onDeviceStatus` for every availability value, and the BCP-47 table covering every `LANGUAGES`
+entry; and the never-stuck helper the options page wraps the Test button in (Still working at
+5 s, Cancel, hard stop at 20 s, late replies dropped). 164 assertions. Time is faked, so the
+20 s hard stop is exercised in milliseconds. Same headless command as above with
+`provider-test.html` in place of `smoke-test.html` (and `--virtual-time-budget=10000` is
+plenty); the title reads `ALL PASS` or `FAILED n` the same way.
 
 The options page has no harness by design (spec: checked by hand). After touching `options/`,
 open it from the extension card and walk the key section: paste a key and watch the
@@ -173,17 +180,22 @@ background/
 content/
   content.js               capture selection → send → replace inline; toolbar & indicator UI
 lib/
-  config.js                settings schema, model/language/tone lists, storage helpers
+  config.js                settings schema, model/language/tone lists, BCP-47 language codes, storage helpers
   prompts.js               system instructions for both actions
-  ai.js                    Gemini client, validate key, live model list, error mapping, output cleanup
+  ai.js                    runAction's route decision, Gemini client, validate key, live model list, error mapping
+  on-device.js             on-device translate: feature detection, auto-swap, source detection (ADR 0003)
+  on-device-offscreen.js   the service worker's half of the offscreen bridge (Chrome only — see below)
   never-stuck.js           the 5 s Cancel / 20 s hard-stop rules as a module, for extension pages
   onboarding.js            key onboarding copy: why line, numbered steps, one-key note, key page URL
+offscreen/
+  on-device.html/.js       invisible document that runs Translator/LanguageDetector for the worker on Chrome
 images/                    optional onboarding-N.png screenshots, one per step (see below)
 options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
   smoke-test.html          drives content.js against a stubbed chrome API, with fake time (88 assertions)
-  provider-test.html       drives lib/ai.js and lib/never-stuck.js against stubbed fetch + storage, with fake time (119 assertions)
+  provider-test.html       drives lib/ai.js, lib/on-device.js and lib/never-stuck.js against stubbed
+                           fetch + storage + Translator/LanguageDetector, with fake time (164 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/
@@ -210,6 +222,28 @@ fetched with, never the key itself. A `BAD_MODEL` error mid-action refreshes the
 action's own 20 s deadline, saves the recommended model and retries once, so a retired model can
 never strand a user ([ADR 0004](docs/adr/0004-self-healing-model-list-and-never-stuck.md)). The
 hardcoded `MODELS` list is only the offline fallback.
+
+**On-device translate (experimental, ADR 0003).** `runAction` decides its route inside the
+action's one 20 s deadline, before the key check: a translate with the "On-device translate"
+toggle on and the language pair available runs on the browser's built-in `Translator` (and
+`LanguageDetector`, for auto-swap) with no network call and no key, and comes back
+`{ text, via: 'on-device' }`; anything that isn't a fit — the toggle is off, the pair is
+unavailable, the API is missing, or the on-device call throws — falls straight through to
+Gemini, silently. Grammar always goes to Gemini. The globals are Window-only per spec
+(`Exposed=Window`) and Chrome does not expose them to the extension service worker, so
+`lib/on-device.js` reaches for them through a seam: the worker's own globals when the browser
+puts them there (Edge does), otherwise an invisible `offscreen/on-device.html` document that
+`lib/on-device-offscreen.js` creates on first use and messages per call (`chrome.offscreen`,
+the `"offscreen"` permission) — feature-detected, never a browser check, so Chrome adding
+worker support later needs no code change. Settings store languages as display names
+(`"Arabic"`); `LANGUAGE_CODES` in `lib/config.js` maps every `LANGUAGES` entry to BCP-47 for the
+on-device calls. The options page's "Translation" section queries the new
+`QF_ON_DEVICE_STATUS { sourceLanguage, targetLanguage }` message (answered by `onDeviceStatus`
+in `lib/on-device.js`) for the secondary → target pair on load and whenever either language
+changes, and greys the toggle out with a human-readable reason unless the browser reports
+`'available'`; turning it on for a `'downloadable'` pair asks a plain `confirm()` naming the
+target language first (the full download-progress-and-cancel consent flow is a later ticket).
+Default is off; nothing changes for a user who never touches it.
 
 **Key onboarding.** Getting a stranger to a free key is the critical path
 ([ADR 0001](docs/adr/0001-no-server-bring-your-own-key.md)), so the options page leads with it:
@@ -302,6 +336,10 @@ you invoke an action.
   that blocks extension injection via CSP sandboxing will not.
 - Selections are capped at 20,000 characters per request.
 - Gemini's free tier is rate-limited; a burst of requests can return "rate limit hit".
+- On-device translate is optional (off by default) and only ever a bonus: it needs a
+  Chromium-based browser with the built-in Translator API and a supported language pair, and the
+  Store listing claims Chrome only even though Edge 148+ is feature-detected and works too
+  (ADR 0003).
 
 ## Troubleshooting
 
@@ -324,9 +362,11 @@ The key lives in `chrome.storage.local`, never synced, never seen by Kalam.
 
 The provider is still external to your organisation's systems, however narrowly the extension
 reads the page (§10 / §11.5) — worth a check against your trust's IG policy before using it on
-anything that could contain patient-identifiable information. The planned on-device translate
-mode ([ADR 0003](docs/adr/0003-on-device-translate-is-experimental.md)) keeps translate on the
-machine where the hardware allows it, but it is an experimental bonus, never the headline claim.
+anything that could contain patient-identifiable information. On-device translate
+([ADR 0003](docs/adr/0003-on-device-translate-is-experimental.md)) is optional, off by default,
+translate-only and Chrome-only in what the listing claims (Edge 148+ happens to work too — see
+Limits): turned on and supported, the selection never leaves the machine for that action, but
+it is an experimental bonus, never the headline claim, and grammar always still goes to Gemini.
 
 ## Parked — explicitly out of scope
 

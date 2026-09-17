@@ -162,6 +162,8 @@ function check(name, pass, detail) {
 function reset() {
   window.__storage = {};
   window.__fetches = [];
+  delete window.Translator;
+  delete window.LanguageDetector;
   fetchScript = [];
   fakeTimers = [];
   fakeNow = 0;
@@ -187,23 +189,74 @@ const SETTINGS = {
   targetLanguage: 'Arabic',
   secondaryLanguage: 'English',
   autoSwapLanguage: true,
+  onDeviceTranslate: false,
   tone: 'preserve',
   customInstructions: ''
 };
 
+/* ------------------------------------------------------- on-device stub */
+// The built-in Translator / LanguageDetector as the provider sees them: real
+// ambient globals, stood in the same way the harness stands in window.fetch
+// and window.chrome — assigned directly, no injection seam of their own.
+// reset() deletes both (absent); a case installs a fake pair with onDevice().
+// Every create / translate / detect call is recorded so a case can assert
+// which pair was asked for.
+
+/**
+ * @param {object} [o]
+ * @param {'absent'|string|((opts) => string)} [o.translator]  'absent' for no Translator global,
+ *   else what availability() answers (a function sees the { sourceLanguage, targetLanguage } asked for)
+ * @param {'absent'|string} [o.detector]  same for LanguageDetector
+ * @param {string} [o.detected]  the language the detector reports
+ * @param {(text, opts) => string|Promise<string>} [o.translate]  what translate() does; default echoes the pair
+ */
+function onDevice({ translator = 'available', detector = 'available', detected = 'en', translate } = {}) {
+  const rec = { creates: [], translates: [], detects: [], destroyed: 0 };
+  if (translator !== 'absent') {
+    window.Translator = {
+      availability: async (opts) => (typeof translator === 'function' ? translator(opts) : translator),
+      create: async (opts) => {
+        rec.creates.push({ sourceLanguage: opts.sourceLanguage, targetLanguage: opts.targetLanguage });
+        return {
+          translate: async (text, o) => {
+            rec.translates.push({ text, signal: o?.signal });
+            return translate ? translate(text, opts) : `[${opts.sourceLanguage}→${opts.targetLanguage}] ${text}`;
+          },
+          destroy: () => { rec.destroyed++; }
+        };
+      }
+    };
+  } else {
+    delete window.Translator;
+  }
+  if (detector !== 'absent') {
+    window.LanguageDetector = {
+      availability: async () => detector,
+      create: async () => ({
+        detect: async (text) => { rec.detects.push(text); return [{ detectedLanguage: detected, confidence: 0.9 }]; },
+        destroy: () => {}
+      })
+    };
+  } else {
+    delete window.LanguageDetector;
+  }
+  return rec;
+}
+
 const pendingTimers = () => fakeTimers.length;
 const now = () => fakeNow;
 
-window.__harness = { advance, now, pendingTimers, check, reset, run, script, after, never, abortError, http, reply, networkFailure, SETTINGS, results };
+window.__harness = { advance, now, pendingTimers, check, reset, run, script, after, never, abortError, http, reply, networkFailure, onDevice, SETTINGS, results };
 </script>
 
 <script type="module">
 import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
-import { getSettings, MAX_CHARS, MODELS } from '../lib/config.js';
+import { onDeviceStatus } from '../lib/on-device.js';
+import { getSettings, MAX_CHARS, MODELS, LANGUAGES, LANGUAGE_CODES } from '../lib/config.js';
 import { runNeverStuck } from '../lib/never-stuck.js';
 
 const H = window.__harness;
-const { check, reset, script, reply, http, after, never, abortError, networkFailure, SETTINGS, results } = H;
+const { check, reset, script, reply, http, after, never, abortError, networkFailure, onDevice, SETTINGS, results } = H;
 const run = (action, text, settings = SETTINGS) => H.run(runAction, action, text, settings);
 /** Run listModels to completion, driving fake time, and return { value } or { error }. */
 const list = (settings = SETTINGS, opts) => H.run((s, o) => listModels(s, o), settings, opts);
@@ -774,6 +827,273 @@ async function main() {
   check('never-stuck: a task that rejects → { status: "failed", error }',
     ns.outcome?.status === 'failed' && ns.outcome.error?.message === 'boom' && H.pendingTimers() === 0,
     JSON.stringify({ outcome: ns.outcome, pending: H.pendingTimers() }));
+
+  // 21 — the on-device route (ADR 0003): translate with the toggle on and the
+  // pair available runs on the built-in Translator and never touches the network.
+  const ON = { ...SETTINGS, onDeviceTranslate: true };
+  reset();
+  let od = onDevice();
+  script(reply('should not be used'));
+  r = await run('translate', 'hello there', ON);
+  check('translate + on-device on + pair available → { via: "on-device" }, no fetch',
+    r.value?.via === 'on-device' && r.value.text === '[en→ar] hello there' && window.__fetches.length === 0,
+    `got ${JSON.stringify(r.value ?? r.error?.code + ': ' + r.error?.message)}, fetches = ${window.__fetches.length}`);
+
+  /** Run a translate with on-device on and expect the Gemini route: one fetch, via 'gemini'. */
+  async function expectGemini(name, { action = 'translate', settings = ON, text = 'hello there' } = {}) {
+    script(reply('from gemini'));
+    const out = await run(action, text, settings);
+    check(name, out.value?.via === 'gemini' && out.value.text === 'from gemini' && window.__fetches.length === 1,
+      `got ${JSON.stringify(out.value ?? out.error?.code + ': ' + out.error?.message)}, fetches = ${window.__fetches.length}`);
+    return out;
+  }
+
+  reset();
+  od = onDevice({ translator: 'unavailable' });
+  await expectGemini('pair unavailable → Gemini, via "gemini"');
+  check('an unavailable pair never creates a translator', od.creates.length === 0, JSON.stringify(od.creates));
+  reset();
+  onDevice({ translator: 'downloadable' });
+  await expectGemini('pair downloadable (not yet downloaded) → Gemini, no surprise download');
+  reset();
+  onDevice({ translator: 'absent' });
+  await expectGemini('Translator absent → Gemini');
+  reset();
+  onDevice({ translate: () => { throw new Error('model crashed'); } });
+  await expectGemini('on-device call throws → Gemini fallback');
+  reset();
+  onDevice({ translator: () => { throw new Error('availability crashed'); } });
+  await expectGemini('availability() throwing → Gemini fallback');
+  reset();
+  onDevice({ translate: () => '   ' });
+  await expectGemini('an empty on-device result → Gemini fallback');
+  reset();
+  od = onDevice();
+  await expectGemini('grammar + on-device on → Gemini', { action: 'grammar' });
+  check('grammar never touches the built-in Translator', od.creates.length === 0 && od.detects.length === 0, JSON.stringify(od));
+  reset();
+  od = onDevice();
+  await expectGemini('translate + on-device off → Gemini even when the pair is available', { settings: { ...ON, onDeviceTranslate: false } });
+  check('the toggle off never touches the built-in Translator', od.creates.length === 0 && od.detects.length === 0, JSON.stringify(od));
+
+  // 22 — a translate-only user needs no key: the route is decided before the
+  // key check. Grammar still needs one.
+  const NO_KEY_ON = { ...ON, apiKey: '' };
+  reset();
+  onDevice();
+  script(reply('should not be used'));
+  r = await run('translate', 'hello there', NO_KEY_ON);
+  check('no key + on-device on + translate + pair available → on-device result, no fetch, no NO_API_KEY',
+    r.value?.via === 'on-device' && r.value.text === '[en→ar] hello there' && window.__fetches.length === 0,
+    `got ${JSON.stringify(r.value ?? r.error?.code + ': ' + r.error?.message)}, fetches = ${window.__fetches.length}`);
+  reset();
+  onDevice();
+  script(reply('x'));
+  r = await run('grammar', 'hello there', NO_KEY_ON);
+  check('no key + on-device on + grammar → NO_API_KEY, nothing fetched',
+    r.error?.code === 'NO_API_KEY' && window.__fetches.length === 0,
+    `got ${JSON.stringify(r.value ?? r.error?.code)}, fetches = ${window.__fetches.length}`);
+  reset();
+  onDevice({ translator: 'unavailable' });
+  script(reply('x'));
+  r = await run('translate', 'hello there', NO_KEY_ON);
+  check('no key + on-device on + translate + pair unavailable → NO_API_KEY (the Gemini fallback needs a key)',
+    r.error?.code === 'NO_API_KEY' && window.__fetches.length === 0,
+    `got ${JSON.stringify(r.value ?? r.error?.code)}, fetches = ${window.__fetches.length}`);
+
+  // 23 — auto-swap on this route mirrors the Gemini prompt's rule, using the
+  // LanguageDetector on the selection; without a detector the source is
+  // assumed to be the secondary language.
+  const pair = () => od.creates.map((c) => `${c.sourceLanguage}→${c.targetLanguage}`).join();
+  reset();
+  od = onDevice({ detected: 'ar' });
+  r = await run('translate', 'مرحبا', ON);
+  check('detected language == target + auto-swap on → translated to the secondary language (ar→en)',
+    r.value?.via === 'on-device' && pair() === 'ar→en' && od.detects[0] === 'مرحبا',
+    `creates = ${pair()}, detects = ${JSON.stringify(od.detects)}, got ${JSON.stringify(r.value ?? r.error?.code)}`);
+  reset();
+  od = onDevice({ detected: 'ar' });
+  r = await run('translate', 'مرحبا', { ...ON, autoSwapLanguage: false });
+  check('detected language == target + auto-swap off → still asks for the target (ar→ar)',
+    r.value?.via === 'on-device' && pair() === 'ar→ar', `creates = ${pair()}, got ${JSON.stringify(r.value ?? r.error?.code)}`);
+  reset();
+  od = onDevice({ detected: 'fr' });
+  r = await run('translate', 'bonjour', ON);
+  check('a detected language that is neither target nor secondary is the source (fr→ar)',
+    r.value?.via === 'on-device' && pair() === 'fr→ar', `creates = ${pair()}`);
+  reset();
+  od = onDevice({ detector: 'absent' });
+  r = await run('translate', 'hello there', ON);
+  check('LanguageDetector absent → source assumed to be the secondary language (en→ar)',
+    r.value?.via === 'on-device' && pair() === 'en→ar' && od.detects.length === 0, `creates = ${pair()}`);
+  reset();
+  od = onDevice({ detector: 'downloadable' });
+  r = await run('translate', 'hello there', ON);
+  check('LanguageDetector not downloaded → no surprise download, source assumed secondary (en→ar)',
+    r.value?.via === 'on-device' && pair() === 'en→ar' && od.detects.length === 0, `creates = ${pair()}`);
+  reset();
+  od = onDevice({ detected: 'und' });
+  r = await run('translate', '12345', ON);
+  check('an undetermined detection ("und") → source assumed secondary (en→ar)',
+    r.value?.via === 'on-device' && pair() === 'en→ar', `creates = ${pair()}`);
+  reset();
+  od = onDevice({ detected: 'zh-Hant' });
+  r = await run('translate', '你好', { ...ON, targetLanguage: 'Chinese (Simplified)', secondaryLanguage: 'English' });
+  check('detected zh-Hant counts as already in Chinese (Simplified): swap to the secondary (zh-Hant→en)',
+    r.value?.via === 'on-device' && pair() === 'zh-Hant→en', `creates = ${pair()}`);
+  reset();
+  od = onDevice({ detected: 'en' });
+  r = await run('translate', 'hello', { ...ON, targetLanguage: 'Portuguese (Brazil)', secondaryLanguage: 'Chinese (Traditional)' });
+  check('display names map to BCP-47 for the pair (en→pt-BR)',
+    r.value?.via === 'on-device' && pair() === 'en→pt-BR', `creates = ${pair()}`);
+  reset();
+  od = onDevice();
+  script(reply('from gemini'));
+  r = await run('translate', 'hello', { ...ON, targetLanguage: 'Klingon' });
+  check('a language name the table does not know → Gemini, nothing created',
+    r.value?.via === 'gemini' && od.creates.length === 0, `creates = ${pair()}, got ${JSON.stringify(r.value ?? r.error?.code)}`);
+
+  // 24 — the on-device route obeys the same 20 s hard stop, on the same
+  // deadline: a stalled local model is TIMEOUT, not a fresh Gemini budget.
+  /** Drive runAction to 20 s of fake time; returns { pendingAt19999, settledAt20, outcome }. */
+  async function driveToDeadline(action, text, settings) {
+    let outcome = null;
+    const p = runAction(action, text, settings).then(
+      (value) => { outcome = { value }; },
+      (error) => { outcome = { error }; }
+    );
+    await H.advance(19999);
+    const pendingAt19999 = outcome === null;
+    await H.advance(1);
+    const settledAt20 = outcome !== null;
+    if (!settledAt20) await H.advance(600000);
+    await p;
+    return { pendingAt19999, settledAt20, outcome };
+  }
+  const settleAt = (ms, value) => () => new Promise((resolve, reject) => setTimeout(() => (value instanceof Error ? reject(value) : resolve(value)), ms));
+
+  reset();
+  od = onDevice({ translate: () => new Promise(() => {}) }); // hangs, ignores the signal
+  script(reply('should not be used'));
+  let dl = await driveToDeadline('translate', 'hello there', ON);
+  check('on-device translate that hangs → TIMEOUT at exactly 20 s, no Gemini call',
+    dl.pendingAt19999 && dl.settledAt20 && dl.outcome?.error?.code === 'TIMEOUT' && window.__fetches.length === 0,
+    `pending at 19.999 s = ${dl.pendingAt19999}, settled at 20 s = ${dl.settledAt20}, got ${JSON.stringify(dl.outcome?.value ?? dl.outcome?.error?.code)}, fetches = ${window.__fetches.length}`);
+  check('the deadline signal is handed to translate()', od.translates[0]?.signal instanceof AbortSignal && od.translates[0].signal.aborted === true,
+    JSON.stringify(od.translates[0]));
+  check('a timed-out on-device action leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  reset();
+  od = onDevice({ translate: (_t, _o) => new Promise((_, reject) => setTimeout(() => reject(new DOMException('aborted', 'AbortError')), 20000)) });
+  script(reply('should not be used'));
+  dl = await driveToDeadline('translate', 'hello there', ON);
+  check('an on-device call that rejects on abort → TIMEOUT, not a Gemini fallback',
+    dl.settledAt20 && dl.outcome?.error?.code === 'TIMEOUT' && window.__fetches.length === 0,
+    `got ${JSON.stringify(dl.outcome?.value ?? dl.outcome?.error?.code)}, fetches = ${window.__fetches.length}`);
+
+  reset();
+  od = onDevice({ translate: settleAt(15000, new Error('model crashed late')) });
+  script(never());
+  dl = await driveToDeadline('translate', 'hello there', ON);
+  check('on-device failing at 15 s → Gemini fallback gets the remaining 5 s: TIMEOUT at 20 s of the action',
+    dl.pendingAt19999 && dl.settledAt20 && dl.outcome?.error?.code === 'TIMEOUT' && window.__fetches.length === 1,
+    `pending at 19.999 s = ${dl.pendingAt19999}, settled at 20 s = ${dl.settledAt20}, got ${JSON.stringify(dl.outcome?.value ?? dl.outcome?.error?.code)}, fetches = ${window.__fetches.length}`);
+
+  reset();
+  od = onDevice({ translate: settleAt(3000, 'slow but fine') });
+  r = await run('translate', 'hello there', ON);
+  check('an on-device translate that takes 3 s is returned as normal', r.value?.via === 'on-device' && r.value.text === 'slow but fine',
+    JSON.stringify(r.value ?? r.error?.code));
+  check('a successful on-device action leaves no timer behind and destroys its translator', H.pendingTimers() === 0 && od.destroyed === 1,
+    `pending = ${H.pendingTimers()}, destroyed = ${od.destroyed}`);
+
+  // 25 — the BAD_MODEL heal is a Gemini concern: on the on-device path a
+  // saved model that Gemini would reject is never even sent, so nothing is
+  // refreshed or rewritten in storage.
+  reset();
+  window.__storage = { model: 'gemini-retired', modelCache: null };
+  od = onDevice();
+  script(http(404, { error: { message: 'model not found' } }), modelsPage(LIVE), reply('healed'));
+  r = await run('translate', 'hello there', { ...ON, model: 'gemini-retired' });
+  check('BAD_MODEL heal never runs on the on-device path: no fetch, model setting untouched',
+    r.value?.via === 'on-device' && window.__fetches.length === 0 && window.__storage.model === 'gemini-retired' && !window.__storage.modelCache,
+    `got ${JSON.stringify(r.value ?? r.error?.code)}, fetches = ${window.__fetches.length}, storage = ${JSON.stringify(window.__storage)}`);
+
+  // 26 — feature detection for the options page: is the API there, is the
+  // pair offered, does it need a download — each "no" with a reason a person
+  // can read. `supported` means the toggle may be turned on (now, or after
+  // the download the reason describes).
+  const PAIR = { sourceLanguage: 'English', targetLanguage: 'Arabic' };
+  const status = (o = PAIR) => onDeviceStatus(o);
+  const shape = (s) => s && typeof s.supported === 'boolean' && typeof s.availability === 'string' && (s.reason === null || typeof s.reason === 'string');
+
+  reset();
+  let st = await status();
+  check('onDeviceStatus with no Translator → { supported: false, availability: "absent", reason }',
+    shape(st) && st.supported === false && st.availability === 'absent' && /Translator|browser/i.test(st.reason || ''), JSON.stringify(st));
+  const absentReason = st?.reason;
+
+  reset();
+  let asked = null;
+  onDevice({ translator: (opts) => { asked = opts; return 'available'; } });
+  st = await status();
+  check('onDeviceStatus with the pair available → { supported: true, availability: "available", reason: null }',
+    shape(st) && st.supported === true && st.availability === 'available' && st.reason === null, JSON.stringify(st));
+  check('onDeviceStatus asks the Translator for the BCP-47 pair, secondary → target',
+    asked?.sourceLanguage === 'en' && asked?.targetLanguage === 'ar', JSON.stringify(asked));
+
+  reset();
+  onDevice({ translator: 'downloadable' });
+  st = await status();
+  check('onDeviceStatus with a downloadable pair → { supported: true, availability: "downloadable" } and a reason that says a download is needed',
+    shape(st) && st.supported === true && st.availability === 'downloadable' && /download/i.test(st.reason || '') && /Arabic/.test(st.reason || ''), JSON.stringify(st));
+
+  reset();
+  onDevice({ translator: 'downloading' });
+  st = await status();
+  check('onDeviceStatus while downloading → { supported: true, availability: "downloading" } with a reason',
+    shape(st) && st.supported === true && st.availability === 'downloading' && /download/i.test(st.reason || ''), JSON.stringify(st));
+
+  reset();
+  onDevice({ translator: 'unavailable' });
+  st = await status();
+  check('onDeviceStatus with an unavailable pair → { supported: false, availability: "unavailable" } and a reason that names the pair and admits it cannot tell hardware from an unsupported pair',
+    shape(st) && st.supported === false && st.availability === 'unavailable' && /English/.test(st.reason || '') && /Arabic/.test(st.reason || '') && /hardware|machine/i.test(st.reason || ''),
+    JSON.stringify(st));
+
+  reset();
+  onDevice({ translator: () => { throw new Error('boom'); } });
+  st = await status();
+  check('onDeviceStatus when availability() throws → unavailable with a reason, never a rejection',
+    shape(st) && st.supported === false && st.availability === 'unavailable' && st.reason, JSON.stringify(st));
+
+  reset();
+  onDevice();
+  st = await status({ sourceLanguage: 'English', targetLanguage: 'Klingon' });
+  check('onDeviceStatus for a language the table does not know → unavailable, the reason names it',
+    shape(st) && st.supported === false && st.availability === 'unavailable' && /Klingon/.test(st.reason || ''), JSON.stringify(st));
+
+  // The offscreen bridge (lib/on-device-offscreen.js) answers 'absent' when the
+  // document on the other side has no Translator either: same result as no API.
+  reset();
+  onDevice({ translator: () => 'absent' });
+  st = await status();
+  check('onDeviceStatus when the bridge answers "absent" → the same result as no API at all',
+    shape(st) && st.supported === false && st.availability === 'absent' && st.reason === absentReason, JSON.stringify(st));
+
+  reset();
+  onDevice({ translator: 'something-new' });
+  st = await status();
+  check('onDeviceStatus passes an availability value it does not know through as unsupported, with a reason',
+    shape(st) && st.supported === false && st.availability === 'something-new' && st.reason, JSON.stringify(st));
+
+  // 27 — the BCP-47 table covers every language the picker offers, and only those.
+  const missing = LANGUAGES.filter((l) => typeof LANGUAGE_CODES[l] !== 'string' || !/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(LANGUAGE_CODES[l]));
+  check('LANGUAGE_CODES has a BCP-47 tag for every LANGUAGES entry', missing.length === 0, `missing/bad: ${JSON.stringify(missing)}`);
+  const extra = Object.keys(LANGUAGE_CODES).filter((l) => !LANGUAGES.includes(l));
+  check('LANGUAGE_CODES has no entry LANGUAGES does not list', extra.length === 0, `extra: ${JSON.stringify(extra)}`);
+  const dup = Object.values(LANGUAGE_CODES).filter((c, i, a) => a.indexOf(c) !== i);
+  check('no two languages share a tag', dup.length === 0, `duplicates: ${JSON.stringify(dup)}`);
 
   const failed = results.filter((x) => x.startsWith('FAIL')).length;
   document.getElementById('out').textContent =

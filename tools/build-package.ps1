@@ -19,7 +19,7 @@ $zipPath = Join-Path $root 'dist\kalam-webstore.zip'
 # ----------------------------------------------------------------- staging
 
 # Only what the browser loads. Tests, docs, tools and the repo metadata stay out.
-$packageItems = @('manifest.json', 'background', 'content', 'lib', 'options', 'popup', 'icons')
+$packageItems = @('manifest.json', 'background', 'content', 'lib', 'options', 'popup', 'offscreen', 'icons')
 
 if (Test-Path $packageDir) { Remove-Item -Path $packageDir -Recurse -Force }
 New-Item -ItemType Directory -Path $packageDir | Out-Null

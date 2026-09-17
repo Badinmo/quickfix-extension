@@ -13,6 +13,7 @@
 
 import { getSettings, saveSettings } from '../lib/config.js';
 import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
+import { onDeviceStatus } from '../lib/on-device.js';
 import { KEY_PAGE_URL, WHY_LINE, STEPS, ONE_KEY_NOTE, SUCCESS_LINE } from '../lib/onboarding.js';
 
 const MENU_ROOT = 'qf-root';
@@ -128,6 +129,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // async
   }
 
+  if (msg?.type === 'QF_ON_DEVICE_STATUS') {
+    handleOnDeviceStatus(msg).then(sendResponse);
+    return true; // async
+  }
+
   if (msg?.type === 'QF_OPEN_OPTIONS') {
     chrome.runtime.openOptionsPage();
     sendResponse({ ok: true });
@@ -198,6 +204,16 @@ async function handleListModels(msg) {
     console.error('[Kalam]', err);
     return { ok: false, error: 'Could not load the model list: ' + (err?.message || err) };
   }
+}
+
+/**
+ * Feature detection for the options page's on-device toggle (ADR 0003):
+ * is the browser's built-in Translator there, does it offer this pair, does
+ * it need a download first. `onDeviceStatus` never rejects, so this is the
+ * whole handler — no try/catch to normalise, unlike the other handlers here.
+ */
+async function handleOnDeviceStatus(msg) {
+  return onDeviceStatus({ sourceLanguage: msg.sourceLanguage, targetLanguage: msg.targetLanguage });
 }
 
 /**
