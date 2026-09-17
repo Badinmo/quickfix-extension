@@ -99,12 +99,15 @@ If a page steals `Alt+G`/`Alt+T`, rebind them at `edge://extensions/shortcuts` o
 Four harnesses in `test/`, in increasing order of realism.
 
 **`smoke-test.html` — run this after touching `content.js`.** It loads the content script into a
-normal page against a stubbed `chrome.*` API, then drives it through 18 assertions: whole-field
+normal page against a stubbed `chrome.*` API, then drives it through 55 assertions: whole-field
 rewrite, partial selection, newline collapsing in single-line inputs, whitespace preservation,
 contenteditable replacement with a quoted thread that must stay untouched, refusing to act on a
-contenteditable with no selection, aborting when the field changes mid-request, error handling,
-the floating toolbar, and read-only selections. No API key or network needed. Open it in a
-browser, or headless:
+contenteditable with no selection, aborting when the field changes mid-request, the floating
+toolbar, read-only selections, and the never-stuck rules — Cancel at 5 s, the 20 s hard stop,
+a bubble with Retry (and Open settings for key/model codes) for every failure code, bubble
+dismissal, the indicator setting, the on-device label and stale-reply dropping. Time is faked
+the same way as in the provider harness, so the 5 s and 20 s cases run in milliseconds. No API
+key or network needed. Open it in a browser, or headless:
 
 ```powershell
 & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
@@ -157,7 +160,7 @@ lib/
 options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
-  smoke-test.html          drives content.js against a stubbed chrome API (18 assertions)
+  smoke-test.html          drives content.js against a stubbed chrome API, with fake time (55 assertions)
   provider-test.html       drives lib/ai.js against stubbed fetch + storage, with fake time (54 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log

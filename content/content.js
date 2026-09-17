@@ -18,13 +18,18 @@
 
   /* ================================================================ state */
 
+  /** The product name as the user sees it in every message this script shows. */
+  const PRODUCT = 'Kalam';
+
   const settings = {
     targetLanguage: 'Arabic',
     showToolbar: true,
     showIndicator: true
   };
 
-  let busy = false;
+  /** The request in flight, or null when idle. See the run section. */
+  let inFlight = null;
+  const busy = () => inFlight !== null;
 
   chrome.storage.local
     .get(['targetLanguage', 'showToolbar', 'showIndicator'])
@@ -145,13 +150,13 @@
     // 2. Anything else — go by the selection.
     const sel = selectionFor(active);
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-      throw new QfError('Select the text you want Kalam to work on first.');
+      throw new QfError(`Select the text you want ${PRODUCT} to work on first.`);
     }
 
     const range = sel.getRangeAt(0).cloneRange();
     const text = sel.toString();
     if (!text.trim()) {
-      throw new QfError('Select the text you want Kalam to work on first.');
+      throw new QfError(`Select the text you want ${PRODUCT} to work on first.`);
     }
 
     const host = closestEditableHost(range.commonAncestorContainer);
@@ -194,7 +199,7 @@
 
     if (!el.isConnected) throw new QfError('That field has gone from the page — nothing was replaced.');
     if (el.value.slice(start, end) !== text) {
-      throw new QfError('The field changed while Kalam was working — nothing was replaced.');
+      throw new QfError(`The field changed while ${PRODUCT} was working — nothing was replaced.`);
     }
 
     el.focus({ preventScroll: true });
@@ -264,7 +269,7 @@
       current = '';
     }
     if (current !== text) {
-      throw new QfError('The text changed while Kalam was working — nothing was replaced.');
+      throw new QfError(`The text changed while ${PRODUCT} was working — nothing was replaced.`);
     }
 
     let ok = false;
@@ -293,36 +298,80 @@
 
   /* ================================================================== run */
 
-  async function run(action) {
-    if (busy) return;
+  // Never-stuck rules (ADR 0004): at 5 s the indicator offers Cancel; at 20 s
+  // the action hard-stops. The provider already gives up at 20 s, so this
+  // guard exists for the case where the worker dies and no reply ever comes.
+  // It fires at exactly 20 s rather than 20 s plus a margin: the page's clock
+  // starts before the worker's, both roads end in the same bubble, and a
+  // provider TIMEOUT that lands afterwards is dropped as a stale reply.
+  const CANCEL_AFTER_MS = 5000;
+  const HARD_STOP_MS = 20000;
+
+  /**
+   * A request walks
+   *   working → working-with-cancel (5 s) → done | failed | cancelled | timed-out (20 s)
+   * `inFlight` holds it while it is in either working state; `settle` leaves
+   * them and the outcome decides what the user sees (a replacement and a flash,
+   * a bubble, or nothing for a Cancel they chose). Each request has an id; a
+   * reply for any other id is dropped, and so is a reply that lands after the
+   * request was settled.
+   */
+  let requestSeq = 0;
+  const isLive = (req) => inFlight === req;
+
+  const LABELS = {
+    grammar: { working: 'Fixing…', done: 'Fixed' },
+    translate: { working: 'Translating…', done: 'Translated' }
+  };
+
+  function run(action) {
+    if (busy()) return;
 
     let target;
     try {
       target = captureTarget();
     } catch (err) {
-      UI.toast(err.message, 'warn');
+      // Nothing captured, so nothing to retry: the user's next selection is the retry.
+      UI.bubble({ message: err.message, kind: 'warn' });
       return;
     }
+    execute(action, target);
+  }
+
+  /** Run `action` on an already-captured target. */
+  async function execute(action, target) {
+    if (busy()) return;
 
     const { lead, core, trail } = splitWhitespace(target.text);
     if (!core) {
-      UI.toast('Select some actual text first.', 'warn');
+      UI.bubble({ rect: anchorRect(target), message: 'Select some actual text first.', kind: 'warn' });
       return;
     }
 
     UI.hideToolbar();
-    busy = true;
-    UI.spinner(anchorRect(target), action === 'translate' ? 'Translating…' : 'Fixing…');
+    UI.hideBubble();
+    const req = { id: ++requestSeq, action, target, cancelTimer: null, stopTimer: null };
+    const labels = LABELS[action] || LABELS.grammar;
+    inFlight = req;
+    UI.indicator(anchorRect(target), labels.working);
+    req.cancelTimer = setTimeout(() => {
+      UI.indicatorWithCancel(anchorRect(target), 'Still working…', () => settle(req));
+    }, CANCEL_AFTER_MS);
+    req.stopTimer = setTimeout(() => timeOut(req), HARD_STOP_MS);
+
+    let res;
+    try {
+      res = await sendToBackground({ type: 'QF_AI', id: req.id, action, text: core });
+    } catch (err) {
+      if (!isLive(req)) return;
+      return fail(req, err.message);
+    }
+    if (!isLive(req)) return; // cancelled or timed out while we waited
+    if (!res) return fail(req, `No response from ${PRODUCT}. Try reloading the page.`);
+    if (res.id !== req.id) return; // a reply for some other request
+    if (!res.ok) return fail(req, res.error || 'Something went wrong.', res.code);
 
     try {
-      const res = await sendToBackground({ type: 'QF_AI', action, text: core });
-
-      if (!res) throw new QfError('No response from Kalam. Try reloading the page.');
-      if (!res.ok) {
-        UI.toast(res.error || 'Something went wrong.', 'error', res.code === 'NO_API_KEY' || res.code === 'BAD_KEY');
-        return;
-      }
-
       // Re-attach the exact whitespace the user had selected, so we do not eat
       // the leading space or the trailing newline of their selection.
       let out = lead + res.text + trail;
@@ -331,22 +380,55 @@
       if (target.kind === 'input') replaceInInput(target, out);
       else if (target.kind === 'editable') replaceInEditable(target, out);
       else UI.result(anchorRect(target), out); // not editable — offer it to copy
-
-      if (target.kind !== 'readonly') UI.flash(action === 'translate' ? 'Translated' : 'Fixed');
     } catch (err) {
-      UI.toast(err instanceof QfError ? err.message : 'Kalam failed: ' + (err?.message || err), 'error');
-    } finally {
-      busy = false;
-      UI.hideSpinner();
+      return fail(req, err instanceof QfError ? err.message : `${PRODUCT} failed: ${err?.message || err}`);
     }
+
+    settle(req);
+    if (target.kind !== 'readonly') {
+      UI.flash(labels.done + (res.via === 'on-device' ? ' · on-device' : ''));
+    }
+  }
+
+  /** Leave the working states: stop the timers, clear busy, hide the indicator. */
+  function settle(req) {
+    if (!isLive(req)) return;
+    clearTimeout(req.cancelTimer);
+    clearTimeout(req.stopTimer);
+    inFlight = null;
+    UI.hideIndicator();
+  }
+
+  function timeOut(req) {
+    fail(req, `${PRODUCT} took too long to respond.`, 'TIMEOUT');
+  }
+
+  function fail(req, message, code) {
+    settle(req);
+    showFailure(req, message, code);
+  }
+
+  // Failures about the key or the model are fixed in settings, so the bubble
+  // offers the way there.
+  const SETTINGS_CODES = new Set(['NO_API_KEY', 'BAD_KEY', 'BAD_MODEL']);
+
+  /** Every failure ends in a bubble: the message, Retry on the same target, and Open settings when that is the fix. */
+  function showFailure(req, message, code) {
+    UI.bubble({
+      rect: anchorRect(req.target),
+      message,
+      kind: 'error',
+      onRetry: () => execute(req.action, req.target),
+      withSettingsLink: SETTINGS_CODES.has(code)
+    });
   }
 
   function sendToBackground(msg) {
     if (!chrome.runtime?.id) {
-      throw new QfError('Kalam was reloaded — refresh this page to use it again.');
+      throw new QfError(`${PRODUCT} was reloaded — refresh this page to use it again.`);
     }
     return chrome.runtime.sendMessage(msg).catch(() => {
-      throw new QfError('Kalam was reloaded — refresh this page to use it again.');
+      throw new QfError(`${PRODUCT} was reloaded — refresh this page to use it again.`);
     });
   }
 
@@ -368,9 +450,9 @@
   const UI = (() => {
     let host = null;
     let root = null;
-    let spinnerEl = null;
-    let toastEl = null;
-    let toastTimer = null;
+    let indicatorEl = null;
+    let bubbleEl = null;
+    let bubbleTimer = null;
     let barEl = null;
     let panelEl = null;
 
@@ -458,47 +540,90 @@
       el.style.visibility = 'visible';
     }
 
-    function spinner(rect, label) {
+    /** The working state: a spinner and a label. Hidden by the showIndicator setting. */
+    function indicator(rect, label) {
       if (!settings.showIndicator) return;
-      hideSpinner();
-      const r = ensure();
-      spinnerEl = document.createElement('div');
-      spinnerEl.className = 'card';
-      spinnerEl.innerHTML = '<div class="row"><span class="spin"></span><span class="msg"></span></div>';
-      spinnerEl.querySelector('.msg').textContent = label;
-      r.layer.appendChild(spinnerEl);
-      place(spinnerEl, rect);
+      renderIndicator(rect, label);
     }
 
-    function hideSpinner() {
-      spinnerEl?.remove();
-      spinnerEl = null;
+    /**
+     * The working-with-cancel state. Shown regardless of showIndicator: the
+     * setting hides progress, not the way out of a stuck action.
+     */
+    function indicatorWithCancel(rect, label, onCancel) {
+      renderIndicator(rect, label);
+      indicatorEl.querySelector('.row').appendChild(actionButton('Cancel', onCancel));
+      place(indicatorEl, rect);
     }
 
-    function toast(message, kind = 'error', withSettingsLink = false) {
-      hideToast();
+    function renderIndicator(rect, label) {
+      hideIndicator();
       const r = ensure();
-      toastEl = document.createElement('div');
-      toastEl.className = 'card ' + kind;
+      indicatorEl = document.createElement('div');
+      indicatorEl.className = 'card';
+      indicatorEl.innerHTML = '<div class="row"><span class="spin"></span><span class="msg"></span></div>';
+      indicatorEl.querySelector('.msg').textContent = label;
+      r.layer.appendChild(indicatorEl);
+      place(indicatorEl, rect);
+    }
+
+    function hideIndicator() {
+      indicatorEl?.remove();
+      indicatorEl = null;
+    }
+
+    /**
+     * The bubble: where every message to the user lands. A failure bubble
+     * stays until the user dismisses it (Escape, a click on it, a scroll) or
+     * starts a new action — a message that expires before you look back at
+     * the page reads as "it just did nothing". Only a success flash is
+     * short-lived (`life`).
+     */
+    function bubble({ rect, message, kind = 'error', onRetry = null, withSettingsLink = false, life = 0 }) {
+      hideBubble();
+      const r = ensure();
+      bubbleEl = document.createElement('div');
+      bubbleEl.className = 'card ' + kind;
       const row = document.createElement('div');
       row.className = 'row';
       const msg = document.createElement('span');
       msg.className = 'msg';
       msg.textContent = message;
       row.appendChild(msg);
+      if (onRetry) row.appendChild(bubbleButton('Retry', onRetry));
       if (withSettingsLink) {
-        const link = document.createElement('button');
-        link.className = 'link';
-        link.textContent = 'Open settings';
-        link.addEventListener('click', () => {
+        row.appendChild(bubbleButton('Open settings', () => {
           chrome.runtime.sendMessage({ type: 'QF_OPEN_OPTIONS' }).catch(() => {});
-          hideToast();
-        });
-        row.appendChild(link);
+        }));
       }
-      toastEl.appendChild(row);
-      r.layer.appendChild(toastEl);
+      bubbleEl.appendChild(row);
+      bubbleEl.addEventListener('click', hideBubble);
+      r.layer.appendChild(bubbleEl);
+      place(bubbleEl, rect || nearSelection());
+      if (life) bubbleTimer = setTimeout(hideBubble, life);
+    }
 
+    /** A button inside an indicator or bubble. Pressing it must not steal the page's selection. */
+    function actionButton(label, onClick) {
+      const btn = document.createElement('button');
+      btn.className = 'link';
+      btn.textContent = label;
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', onClick);
+      return btn;
+    }
+
+    /** A bubble action: dismisses the bubble first, so a message the action shows itself survives. */
+    function bubbleButton(label, fn) {
+      return actionButton(label, (e) => {
+        e.stopPropagation();
+        hideBubble();
+        fn();
+      });
+    }
+
+    /** Where to put a message that has no captured target: by the selection, else the focused element. */
+    function nearSelection() {
       const sel = document.getSelection();
       let rect = { left: 16, top: 16, bottom: 56, right: 216, width: 200, height: 40 };
       try {
@@ -512,26 +637,17 @@
       } catch {
         /* keep default */
       }
-      place(toastEl, rect);
-      clearTimeout(toastTimer);
-      // Errors linger: a request can take a while, and a 5s message that
-      // expires before you look back at the page reads as "it just did
-      // nothing". Dismissable early with Escape or by clicking it.
-      const life = withSettingsLink ? 15000 : kind === 'error' ? 12000 : 5000;
-      toastEl.addEventListener('click', hideToast);
-      toastTimer = setTimeout(hideToast, life);
+      return rect;
     }
 
     function flash(message) {
-      toast(message, 'ok');
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(hideToast, 1400);
+      bubble({ message, kind: 'ok', life: 1400 });
     }
 
-    function hideToast() {
-      clearTimeout(toastTimer);
-      toastEl?.remove();
-      toastEl = null;
+    function hideBubble() {
+      clearTimeout(bubbleTimer);
+      bubbleEl?.remove();
+      bubbleEl = null;
     }
 
     function result(rect, text) {
@@ -540,7 +656,7 @@
       panelEl = document.createElement('div');
       panelEl.className = 'card panel';
       panelEl.innerHTML =
-        '<div class="head"><span>Kalam — read-only selection</span></div>' +
+        `<div class="head"><span>${PRODUCT} — read-only selection</span></div>` +
         '<div class="out"></div>' +
         '<div class="acts"><button class="copy">Copy</button><button class="close">Close</button></div>';
       panelEl.querySelector('.out').textContent = text;
@@ -594,7 +710,10 @@
       barEl = null;
     }
 
-    return { spinner, hideSpinner, toast, hideToast, flash, result, hidePanel, showToolbar, hideToolbar };
+    return {
+      indicator, indicatorWithCancel, hideIndicator,
+      bubble, hideBubble, flash, result, hidePanel, showToolbar, hideToolbar
+    };
   })();
 
   /* ====================================================== floating toolbar */
@@ -602,7 +721,7 @@
   let toolbarTimer = null;
 
   function maybeShowToolbar() {
-    if (!settings.showToolbar || busy) return;
+    if (!settings.showToolbar || busy()) return;
 
     const active = deepActiveElement();
 
@@ -640,10 +759,10 @@
   document.addEventListener('mousedown', (e) => {
     if (!e.target || !e.target.closest || !e.target.closest('[data-quickfix]')) UI.hideToolbar();
   }, true);
-  document.addEventListener('scroll', () => { UI.hideToolbar(); UI.hideToast(); }, true);
+  document.addEventListener('scroll', () => { UI.hideToolbar(); UI.hideBubble(); }, true);
   window.addEventListener('blur', () => UI.hideToolbar());
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideToast(); UI.hidePanel(); }
+    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); }
   }, true);
 
   /* ============================================================= messaging */

@@ -126,16 +126,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return false;
 });
 
+/**
+ * The reply echoes the request's `id` so the content script can drop a reply
+ * that belongs to a request it has since cancelled or timed out.
+ */
 async function handleAi(msg) {
+  const id = msg.id;
   try {
     const settings = await getSettings();
     const { text, via } = await runAction(msg.action, msg.text, settings);
-    return { ok: true, text, via };
+    return { ok: true, id, text, via };
   } catch (err) {
     if (err instanceof AiError) {
-      return { ok: false, code: err.code, error: err.message };
+      return { ok: false, id, code: err.code, error: err.message };
     }
     console.error('[Kalam]', err);
-    return { ok: false, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
+    return { ok: false, id, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
   }
 }
