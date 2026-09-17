@@ -11,8 +11,9 @@
  * selection (requirements §5.1, hard requirement).
  */
 
-import { getSettings } from '../lib/config.js';
+import { getSettings, saveSettings } from '../lib/config.js';
 import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
+import { KEY_PAGE_URL, WHY_LINE, STEPS, ONE_KEY_NOTE, SUCCESS_LINE } from '../lib/onboarding.js';
 
 const MENU_ROOT = 'qf-root';
 const MENU_GRAMMAR = 'qf-grammar';
@@ -133,8 +134,31 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  // The in-page onboarding panel: a content script can import no module and
+  // open no tab, so the worker hands it the copy and opens the key page.
+  if (msg?.type === 'QF_ONBOARDING_COPY') {
+    sendResponse({ ok: true, copy: onboardingCopy() });
+    return false;
+  }
+
+  if (msg?.type === 'QF_OPEN_KEY_PAGE') {
+    chrome.tabs.create({ url: KEY_PAGE_URL });
+    sendResponse({ ok: true });
+    return false;
+  }
+
   return false;
 });
+
+/** The onboarding copy from lib/onboarding.js, with each screenshot path resolved to a URL a page can load. */
+function onboardingCopy() {
+  return {
+    whyLine: WHY_LINE,
+    steps: STEPS.map(({ text, screenshot }) => ({ text, screenshotUrl: chrome.runtime.getURL(screenshot) })),
+    oneKeyNote: ONE_KEY_NOTE,
+    successLine: SUCCESS_LINE
+  };
+}
 
 /**
  * The reply echoes the request's `id` so the content script can drop a reply
@@ -180,11 +204,13 @@ async function handleListModels(msg) {
  * Key onboarding (ADR 0001): check a key the moment it is pasted. The key
  * travels in the message because it may not be saved yet. Only extension
  * pages and the content script can send runtime messages, never a web page.
+ * With `save: true` a working key is saved here, trimmed, so the options
+ * page and the in-page panel share one save.
  */
 async function handleValidateKey(msg) {
+  const apiKey = String(msg.apiKey || '').trim();
   try {
-    await validateKey(msg.apiKey);
-    return { ok: true };
+    await validateKey(apiKey);
   } catch (err) {
     if (err instanceof AiError) {
       return { ok: false, code: err.code, error: err.message };
@@ -192,4 +218,13 @@ async function handleValidateKey(msg) {
     console.error('[Kalam]', err);
     return { ok: false, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
   }
+  if (msg.save === true) {
+    try {
+      await saveSettings({ apiKey });
+    } catch (err) {
+      console.error('[Kalam]', err);
+      return { ok: false, code: 'SAVE_FAILED', error: 'The key works but could not be saved: ' + (err?.message || err) };
+    }
+  }
+  return { ok: true };
 }

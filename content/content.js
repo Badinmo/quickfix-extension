@@ -350,6 +350,7 @@
 
     UI.hideToolbar();
     UI.hideBubble();
+    UI.hideOnboarding(); // a new action replaces the pending one the panel was holding
     const req = { id: ++requestSeq, action, target, cancelTimer: null, stopTimer: null };
     const labels = LABELS[action] || LABELS.grammar;
     inFlight = req;
@@ -409,18 +410,131 @@
   }
 
   // Failures about the key or the model are fixed in settings, so the bubble
-  // offers the way there.
-  const SETTINGS_CODES = new Set(['NO_API_KEY', 'BAD_KEY', 'BAD_MODEL']);
+  // offers the way there. (No key at all is handled by the onboarding panel.)
+  const SETTINGS_CODES = new Set(['BAD_KEY', 'BAD_MODEL']);
 
-  /** Every failure ends in a bubble: the message, Retry on the same target, and Open settings when that is the fix. */
+  /**
+   * Every failure ends in a bubble: the message, Retry on the same target, and
+   * Open settings when that is the fix. The one exception is no key at all:
+   * that opens the onboarding panel, which walks the user to a key right here.
+   */
   function showFailure(req, message, code) {
+    if (code === 'NO_API_KEY') return openOnboarding(req, message);
+    failureBubble(req, message, SETTINGS_CODES.has(code));
+  }
+
+  function failureBubble(req, message, withSettingsLink) {
     UI.bubble({
       rect: anchorRect(req.target),
       message,
       kind: 'error',
       onRetry: () => execute(req.action, req.target),
-      withSettingsLink: SETTINGS_CODES.has(code)
+      withSettingsLink
     });
+  }
+
+  /* ========================================================== onboarding */
+
+  // The onboarding panel (ADR 0001): the first action with no key opens it in
+  // the page, remembering the action and the captured target so "Try again"
+  // runs exactly what the user asked for once their key works. The copy is
+  // the worker's (lib/onboarding.js), fetched on open — a content script can
+  // import nothing — so this file holds no onboarding wording of its own.
+
+  /** What the open panel is for: the request it will re-run and the copy it shows. Null while closed. */
+  let onboardingFor = null;
+
+  /** Open the panel for the request that just failed with no key. */
+  async function openOnboarding(req, message) {
+    let res = null;
+    try {
+      res = await sendToBackground({ type: 'QF_ONBOARDING_COPY' });
+    } catch {
+      res = null;
+    }
+    if (requestSeq !== req.id) return; // a newer action started meanwhile; its own outcome decides what shows
+    if (!res?.ok || !res.copy) {
+      // No copy means no worker; the bubble is the way out that still works.
+      return failureBubble(req, message, true);
+    }
+    UI.hideOnboarding(); // an earlier panel's pending check must not paint this one (its onClose drops it)
+    onboardingFor = { req, copy: res.copy };
+    UI.onboarding({
+      rect: anchorRect(req.target),
+      copy: res.copy,
+      onKeyEdited: scheduleValidation,
+      onClose: () => { onboardingFor = null; dropValidation(); }
+    });
+  }
+
+  // Validate the moment a key is pasted, or 400 ms after typing stops (the
+  // options page does the same). Each check has a sequence number: a reply
+  // for an older value, a cancelled check or a closed panel is dropped.
+  const VALIDATE_DEBOUNCE_MS = 400;
+  let validateSeq = 0;
+  let validateTimer = null;
+
+  /** Forget whatever check is pending or in flight. */
+  function dropValidation() {
+    clearTimeout(validateTimer);
+    validateSeq++;
+  }
+
+  function scheduleValidation(value, pasted) {
+    dropValidation();
+    const apiKey = value.trim();
+    if (!apiKey) return UI.onboardingStatus(null);
+    validateTimer = setTimeout(() => validatePastedKey(apiKey), pasted ? 0 : VALIDATE_DEBOUNCE_MS);
+  }
+
+  /**
+   * One check of a pasted key through the worker (QF_VALIDATE_KEY, which
+   * also saves a working key), under the never-stuck rules: Still checking…
+   * with Cancel at 5 s, a timed-out line at 20 s. Ends in one of three
+   * states on the panel's status line: checking, working (with Try again on
+   * the pending action) or failed with the reason, the box still editable.
+   */
+  async function validatePastedKey(apiKey) {
+    if (!onboardingFor) return; // the panel closed during the debounce
+    const { req, copy } = onboardingFor;
+    const seq = ++validateSeq;
+    const live = () => seq === validateSeq && onboardingFor?.req === req;
+    const status = (text, kind, actions) => UI.onboardingStatus({ text, kind, actions });
+    const checkAgain = { label: 'Check again', onClick: () => validatePastedKey(apiKey) };
+    let cancelTimer = null;
+    let stopTimer = null;
+    const end = () => {
+      clearTimeout(cancelTimer);
+      clearTimeout(stopTimer);
+      validateSeq++; // a reply that lands after this is for a check that is over
+    };
+
+    status('Checking your key…', 'busy');
+    cancelTimer = setTimeout(() => {
+      if (!live()) return;
+      status('Still checking…', 'busy', [{ label: 'Cancel', onClick: () => {
+        if (!live()) return;
+        end();
+        status('Cancelled.', '', [checkAgain]);
+      } }]);
+    }, CANCEL_AFTER_MS);
+    stopTimer = setTimeout(() => {
+      if (!live()) return;
+      end();
+      status('Checking the key took too long. Check your connection.', 'bad', [checkAgain]);
+    }, HARD_STOP_MS);
+
+    let res;
+    try {
+      res = await sendToBackground({ type: 'QF_VALIDATE_KEY', apiKey, save: true });
+    } catch (err) {
+      res = { ok: false, error: err.message };
+    }
+    if (!live()) return; // superseded, cancelled, timed out, or the panel is gone
+    end();
+    if (!res || typeof res.ok !== 'boolean') res = { ok: false, error: `No reply from ${PRODUCT}. Try reloading the page.` };
+    if (!res.ok) return status(res.error || 'Something went wrong.', 'bad', [checkAgain]);
+    status(copy.successLine, 'ok', [{ label: 'Try again', onClick: () => execute(req.action, req.target) }]);
   }
 
   function sendToBackground(msg) {
@@ -455,6 +569,8 @@
     let bubbleTimer = null;
     let barEl = null;
     let panelEl = null;
+    let onboardEl = null;
+    let onboardClose = null;
 
     const CSS = `
       :host { all: initial; }
@@ -495,12 +611,43 @@
       .card button.link { background: transparent; color: inherit;
                           text-decoration: underline; padding: 0 2px; }
 
+      .onboard { max-width: min(480px, 92vw); max-height: min(85vh, 640px); overflow: auto;
+                 padding: 12px 14px; font-weight: 400; }
+      .onboard .head { display: flex; align-items: center; justify-content: space-between;
+                       gap: 12px; margin-bottom: 8px; font-size: 11px; font-weight: 500;
+                       text-transform: uppercase; letter-spacing: .05em; color: #6b7280; }
+      .onboard p { margin: 0 0 8px; }
+      .onboard ol { margin: 0 0 8px; padding-left: 20px; }
+      .onboard li { margin: 4px 0; }
+      .onboard li img { display: block; max-width: 100%; max-height: 140px; margin-top: 4px;
+                        border: 1px solid #d8dbe2; border-radius: 6px; }
+      .onboard .paste { display: flex; align-items: center; gap: 6px; margin: 10px 0 4px; }
+      .onboard input { all: unset; flex: 1; min-width: 0; box-sizing: border-box; font: inherit;
+                       padding: 6px 8px; border: 1px solid #c4c9d4; border-radius: 6px;
+                       background: #fff; color: #111827; }
+      .onboard input:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px #c7d2fe; }
+      .onboard .status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+                         min-height: 1.4em; margin: 4px 0 8px; }
+      .onboard .status.busy { color: #4b5563; }
+      .onboard .status.ok   { color: #15803d; }
+      .onboard .status.bad  { color: #b91c1c; }
+      .onboard .note { color: #6b7280; font-size: 12px; }
+      .onboard .foot { display: flex; justify-content: space-between; gap: 8px; }
+      .onboard button.primary { all: unset; cursor: pointer; font: inherit; font-size: 12px;
+                                font-weight: 500; padding: 5px 10px; border-radius: 6px;
+                                background: #4f46e5; color: #fff; white-space: nowrap; }
+
       @media (prefers-color-scheme: dark) {
         .card { background: #1f2937; color: #f3f4f6; border-color: #374151; }
         .card.error { background: #3f1d1d; color: #fecaca; border-color: #7f1d1d; }
         .card.warn  { background: #422006; color: #fde68a; border-color: #78350f; }
         .card.ok    { background: #052e16; color: #bbf7d0; border-color: #14532d; }
-        .panel .head { color: #9ca3af; }
+        .panel .head, .onboard .head, .onboard .note { color: #9ca3af; }
+        .onboard input { background: #111827; color: #f3f4f6; border-color: #4b5563; }
+        .onboard li img { border-color: #4b5563; }
+        .onboard .status.busy { color: #d1d5db; }
+        .onboard .status.ok   { color: #86efac; }
+        .onboard .status.bad  { color: #fca5a5; }
       }
     `;
 
@@ -592,15 +739,22 @@
       row.appendChild(msg);
       if (onRetry) row.appendChild(bubbleButton('Retry', onRetry));
       if (withSettingsLink) {
-        row.appendChild(bubbleButton('Open settings', () => {
-          chrome.runtime.sendMessage({ type: 'QF_OPEN_OPTIONS' }).catch(() => {});
-        }));
+        row.appendChild(bubbleButton('Open settings', () => tellBackground({ type: 'QF_OPEN_OPTIONS' })));
       }
       bubbleEl.appendChild(row);
       bubbleEl.addEventListener('click', hideBubble);
       r.layer.appendChild(bubbleEl);
       place(bubbleEl, rect || nearSelection());
       if (life) bubbleTimer = setTimeout(hideBubble, life);
+    }
+
+    /** Fire-and-forget to the worker, for buttons whose only effect happens there (open a tab, open settings). */
+    function tellBackground(msg) {
+      try {
+        chrome.runtime.sendMessage(msg).catch(() => {});
+      } catch {
+        /* the extension was reloaded; nothing to open from here */
+      }
     }
 
     /** A button inside an indicator or bubble. Pressing it must not steal the page's selection. */
@@ -678,6 +832,106 @@
       panelEl = null;
     }
 
+    /**
+     * The onboarding panel: the why line, the numbered steps (each with a
+     * screenshot slot that shows only once its image has loaded), Get your
+     * free key, the paste box, a status line, the one-key note, a link to the
+     * options page and Close. Anchored like the bubble, in the same shadow
+     * root, so page CSS cannot touch it. It is a setup surface, not a
+     * message: nothing but Close, Escape, Try again or a new action removes it.
+     */
+    function onboarding({ rect, copy, onKeyEdited, onClose }) {
+      hideOnboarding();
+      const r = ensure();
+      onboardClose = onClose;
+      onboardEl = document.createElement('div');
+      onboardEl.className = 'card onboard';
+      onboardEl.innerHTML =
+        '<div class="head"><span></span><button class="link close">Close</button></div>' +
+        '<p class="why"></p><ol class="steps"></ol>' +
+        '<div class="acts"><button class="primary getkey">Get your free key</button></div>' +
+        '<div class="paste"><input type="password" spellcheck="false" autocomplete="off" placeholder="Paste your key here"><button class="link toggle">Show</button></div>' +
+        '<div class="status"></div>' +
+        '<p class="note"></p>' +
+        '<div class="foot"><button class="link options">Open settings</button></div>';
+      onboardEl.querySelector('.head span').textContent = `${PRODUCT} — set up your free key`;
+      onboardEl.querySelector('.why').textContent = copy.whyLine || '';
+      onboardEl.querySelector('.note').textContent = copy.oneKeyNote || '';
+      onboardEl.querySelector('.steps').append(...(copy.steps || []).map(onboardingStep));
+      onboardEl.querySelector('.close').addEventListener('click', hideOnboarding);
+      // A content script cannot open a tab or the options page itself; the worker does both.
+      onboardEl.querySelector('.getkey').addEventListener('click', () => tellBackground({ type: 'QF_OPEN_KEY_PAGE' }));
+      onboardEl.querySelector('.options').addEventListener('click', () => tellBackground({ type: 'QF_OPEN_OPTIONS' }));
+
+      // The paste box: a password field (the key is a credential and the page
+      // may be on a shared screen) with a Show toggle, as on the options page.
+      // A paste reports itself so the check can skip the typing debounce; the
+      // paste's own input event fires before the timer resets the flag.
+      const box = onboardEl.querySelector('input');
+      let pastePending = false;
+      box.addEventListener('paste', () => {
+        pastePending = true;
+        setTimeout(() => { pastePending = false; }, 0);
+      });
+      box.addEventListener('input', () => {
+        const pasted = pastePending;
+        pastePending = false;
+        onKeyEdited(box.value, pasted);
+      });
+      onboardEl.querySelector('.toggle').addEventListener('click', (e) => {
+        const showing = box.type === 'text';
+        box.type = showing ? 'password' : 'text';
+        e.target.textContent = showing ? 'Show' : 'Hide';
+      });
+      // Keystrokes in the panel are the panel's, not the page's (mail and
+      // ticket editors have single-key shortcuts). This script's own
+      // document-level handlers run first, in the capture phase, so Escape
+      // still closes the panel.
+      for (const type of ['keydown', 'keypress', 'keyup']) {
+        onboardEl.addEventListener(type, (e) => { if (e.key !== 'Escape') e.stopPropagation(); });
+      }
+
+      r.layer.appendChild(onboardEl);
+      place(onboardEl, rect);
+    }
+
+    /** The panel's status line: `null` clears it; otherwise text, a kind (busy | ok | bad) and inline actions. */
+    function onboardingStatus(state) {
+      const el = onboardEl?.querySelector('.status');
+      if (!el) return;
+      el.className = 'status ' + (state?.kind || '');
+      el.replaceChildren(
+        ...(state?.text ? [state.text] : []),
+        ...(state?.actions || []).map(({ label, onClick }) => actionButton(label, onClick))
+      );
+    }
+
+    /** One numbered step. The image is hidden until it loads and dropped if it never does, so a missing file leaves plain text. */
+    function onboardingStep({ text, screenshotUrl }) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      if (screenshotUrl) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.hidden = true;
+        img.addEventListener('load', () => { img.hidden = false; });
+        img.addEventListener('error', () => img.remove());
+        img.src = screenshotUrl;
+        li.appendChild(img);
+      }
+      return li;
+    }
+
+    /** Close the panel, however it was asked for (Close, Escape, Try again, a new action), and tell the owner once. */
+    function hideOnboarding() {
+      if (!onboardEl) return;
+      onboardEl.remove();
+      onboardEl = null;
+      const fn = onboardClose;
+      onboardClose = null;
+      fn?.();
+    }
+
     function showToolbar(rect) {
       hideToolbar();
       const r = ensure();
@@ -712,7 +966,8 @@
 
     return {
       indicator, indicatorWithCancel, hideIndicator,
-      bubble, hideBubble, flash, result, hidePanel, showToolbar, hideToolbar
+      bubble, hideBubble, flash, result, hidePanel, showToolbar, hideToolbar,
+      onboarding, onboardingStatus, hideOnboarding
     };
   })();
 
@@ -762,7 +1017,7 @@
   document.addEventListener('scroll', () => { UI.hideToolbar(); UI.hideBubble(); }, true);
   window.addEventListener('blur', () => UI.hideToolbar());
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); }
+    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); UI.hideOnboarding(); }
   }, true);
 
   /* ============================================================= messaging */

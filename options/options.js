@@ -194,10 +194,14 @@ function setLine(el, text, kind, action) {
 }
 const setKeyStatus = (text, kind = '', action) => setLine($('keyStatus'), text, kind, action);
 
-/** Ask the background to check a key. Resolves to { ok: true } or { ok: false, code, error }; never throws. */
-async function validateKeyMessage(apiKey) {
+/**
+ * Ask the background to check a key; with `save` it also saves a working key
+ * (trimmed) — the one save path shared with the in-page onboarding panel.
+ * Resolves to { ok: true } or { ok: false, code, error }; never throws.
+ */
+async function validateKeyMessage(apiKey, { save = false } = {}) {
   try {
-    const res = await chrome.runtime.sendMessage({ type: 'QF_VALIDATE_KEY', apiKey });
+    const res = await chrome.runtime.sendMessage({ type: 'QF_VALIDATE_KEY', apiKey, save });
     return res && typeof res.ok === 'boolean' ? res : { ok: false, code: 'UNKNOWN', error: 'No reply from the extension.' };
   } catch (err) {
     return { ok: false, code: 'UNKNOWN', error: 'Could not reach the extension background worker: ' + err.message };
@@ -206,8 +210,8 @@ async function validateKeyMessage(apiKey) {
 
 // Validate the moment a key is pasted (or 400 ms after typing stops). Each run
 // has a sequence number so a slow reply for an older value cannot overwrite
-// the state for the current one. A valid key is saved at once, trimmed, and
-// the model list is refreshed for it.
+// the state for the current one. A valid key is saved at once by the worker,
+// trimmed, and the model list is refreshed for it.
 const VALIDATE_DEBOUNCE_MS = 400;
 let validateSeq = 0;
 let validateTimer = null;
@@ -223,7 +227,7 @@ async function validateCurrentKey() {
   }
 
   setKeyStatus('Checking your key…', 'busy');
-  const outcome = await runNeverStuck(() => validateKeyMessage(apiKey), {
+  const outcome = await runNeverStuck(() => validateKeyMessage(apiKey, { save: true }), {
     onStillWorking: () => { if (live()) setKeyStatus('Still checking…', 'busy'); }
   });
   if (!live()) return; // superseded by a newer paste or edit
@@ -240,12 +244,6 @@ async function validateCurrentKey() {
   }
 
   setKeyStatus(SUCCESS_LINE, 'ok');
-  try {
-    await saveSettings({ apiKey });
-  } catch (err) {
-    setKeyStatus(`The key works but could not be saved: ${err.message}`, 'bad', tryAgain);
-    return;
-  }
   loadModelsOrNote({ force: true });
 }
 

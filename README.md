@@ -100,15 +100,20 @@ If a page steals `Alt+G`/`Alt+T`, rebind them at `edge://extensions/shortcuts` o
 Four harnesses in `test/`, in increasing order of realism.
 
 **`smoke-test.html` — run this after touching `content.js`.** It loads the content script into a
-normal page against a stubbed `chrome.*` API, then drives it through 55 assertions: whole-field
+normal page against a stubbed `chrome.*` API, then drives it through 88 assertions: whole-field
 rewrite, partial selection, newline collapsing in single-line inputs, whitespace preservation,
 contenteditable replacement with a quoted thread that must stay untouched, refusing to act on a
 contenteditable with no selection, aborting when the field changes mid-request, the floating
-toolbar, read-only selections, and the never-stuck rules — Cancel at 5 s, the 20 s hard stop,
+toolbar, read-only selections, the never-stuck rules — Cancel at 5 s, the 20 s hard stop,
 a bubble with Retry (and Open settings for key/model codes) for every failure code, bubble
-dismissal, the indicator setting, the on-device label and stale-reply dropping. Time is faked
-the same way as in the provider harness, so the 5 s and 20 s cases run in milliseconds. No API
-key or network needed. Open it in a browser, or headless:
+dismissal, the indicator setting, the on-device label and stale-reply dropping — and the
+onboarding panel: a `NO_API_KEY` reply opens it (no bubble, busy clear), its copy and buttons,
+screenshot slots that show a loaded image and drop a missing one, the paste box (debounce,
+trimmed key, `save: true`), the checking → working + Try again / failed states, Try again
+re-sending the pending action, late-reply dropping, Cancel at 5 s and the 20 s stop inside the
+panel, Escape / Close / a new action closing it, and the bubble fallback when the worker cannot
+be reached. Time is faked the same way as in the provider harness, so the 5 s and 20 s cases
+run in milliseconds. No API key or network needed. Open it in a browser, or headless:
 
 ```powershell
 & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
@@ -177,7 +182,7 @@ images/                    optional onboarding-N.png screenshots, one per step (
 options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
-  smoke-test.html          drives content.js against a stubbed chrome API, with fake time (55 assertions)
+  smoke-test.html          drives content.js against a stubbed chrome API, with fake time (88 assertions)
   provider-test.html       drives lib/ai.js and lib/never-stuck.js against stubbed fetch + storage, with fake time (119 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
@@ -211,16 +216,36 @@ hardcoded `MODELS` list is only the offline fallback.
 a one-line why, numbered steps, a **Get your free key** button that opens
 `aistudio.google.com/apikey` in a new tab, and a "one key per person" note. The copy lives once,
 in `lib/onboarding.js`, so the in-page onboarding panel says the same thing. Pasting a key sends
-`QF_VALIDATE_KEY { apiKey }` to the service worker, which calls `validateKey` in `lib/ai.js` —
-one GET on the models endpoint with the key in the header, on its own 20 s deadline, mapped
-through the same error codes as an action — and the page shows checking → "Working — you're
-set up" or the failure reason with Try again. A valid key is saved at once (trimmed) and the
-model list is refreshed for it; `QF_LIST_MODELS` accepts an `apiKey` override for exactly that,
-so the page never has to save the rest of the form first. **Test connection** runs the key
-check, then one real grammar action so the thinking-variant diagnostic survives, under the
-never-stuck rules from `lib/never-stuck.js` (Cancel at 5 s, hard stop at 20 s). Screenshots are
-optional: drop `images/onboarding-1.png` … `onboarding-4.png` (one per step, in step order) into
-the package and each step shows its image; with no file there is no image and no broken icon.
+`QF_VALIDATE_KEY { apiKey, save: true }` to the service worker, which calls `validateKey` in
+`lib/ai.js` — one GET on the models endpoint with the key in the header, on its own 20 s
+deadline, mapped through the same error codes as an action — and the page shows checking →
+"Working — you're set up" or the failure reason with Try again. A working key is saved by the
+worker at once (trimmed) — the one save path both surfaces use — and the page refreshes the
+model list for it; `QF_LIST_MODELS` accepts an `apiKey` override for exactly that, so the page
+never has to save the rest of the form first. **Test connection** runs the key check, then one
+real grammar action so the thinking-variant diagnostic survives, under the never-stuck rules
+from `lib/never-stuck.js` (Cancel at 5 s, hard stop at 20 s). Screenshots are optional: drop
+`images/onboarding-1.png` … `onboarding-4.png` (one per step, in step order) into the package
+and each step shows its image; with no file there is no image and no broken icon.
+
+**Onboarding panel.** The first action that comes back `NO_API_KEY` opens the onboarding panel
+in the page instead of a bubble, so a new user gets to a working key without leaving what they
+were writing. It lives in the same shadow root as the toolbar, indicator and bubble (so page
+CSS cannot touch it), is anchored like the bubble, and remembers the action and the captured
+target. A content script can import no module and open no tab, so the worker serves it:
+`QF_ONBOARDING_COPY` → `{ ok, copy: { whyLine, steps: [{ text, screenshotUrl }], oneKeyNote,
+successLine } }` (the copy from `lib/onboarding.js`, screenshot paths resolved with
+`chrome.runtime.getURL`; `images/onboarding-*.png` is listed under `web_accessible_resources`
+so a page may load them, and each slot is hidden until its image loads and dropped if it never
+does) and `QF_OPEN_KEY_PAGE` → opens the key page in a new tab. The paste box is a password
+field with a Show toggle; a paste is checked at once, typing 400 ms after it stops, through the
+same `QF_VALIDATE_KEY { apiKey, save: true }` under the never-stuck rules inside the panel
+(Still checking… with Cancel at 5 s, a timed-out line at 20 s), ending in checking → "Working —
+you're set up" with **Try again** (re-runs the pending action on the pending target, subject to
+the staleness check, and closes the panel) or the failure reason with the box still editable
+and a Check again. It is a setup surface, not a message: it never auto-dismisses and survives a
+scroll and a click outside; Escape, Close, Try again or starting a new action close it. If the
+worker cannot be reached for the copy, the failure falls back to the bubble with Open settings.
 
 **Frame routing.** `Alt+G` is a browser-level command, so it arrives at the service worker, which
 broadcasts to every frame in the active tab. Each frame answers only if it owns focus

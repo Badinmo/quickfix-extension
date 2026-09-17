@@ -36,6 +36,13 @@
     "open_in_tab": true
   },
 
+  "web_accessible_resources": [
+    {
+      "resources": ["images/onboarding-*.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
   "action": {
     "default_title": "Kalam",
     "default_popup": "popup/popup.html",

@@ -4,10 +4,11 @@
 <body>
 <!--
   Runs content/content.js in this page against a stubbed chrome.* API, so the
-  capture → replace logic and the never-stuck rules (5 s Cancel, 20 s hard
-  stop, the failure bubble) can be exercised without a browser extension
-  context, an API key, or a network call. This is the test to run after
-  touching content.js.
+  capture → replace logic, the never-stuck rules (5 s Cancel, 20 s hard
+  stop, the failure bubble) and the onboarding panel (opened by NO_API_KEY,
+  key validation through the stubbed worker) can be exercised without a
+  browser extension context, an API key, or a network call. This is the test
+  to run after touching content.js.
 
   Time is faked: setTimeout/clearTimeout are replaced with a scheduler the
   harness advances by hand, so the 5 s and 20 s cases run in milliseconds.
@@ -88,6 +89,23 @@ window.__reply = { ok: true, text: 'REWRITTEN' };
 window.__replyDelay = 0;
 window.__lastSent = null;
 window.__sent = [];
+// What the worker answers QF_ONBOARDING_COPY with (the panel's copy, from
+// lib/onboarding.js in the real worker) and QF_VALIDATE_KEY with. Both are read
+// at send time, like __reply, so a case can change them before a late reply lands.
+const DEFAULT_COPY = {
+  whyLine: 'WHY LINE: free, yours, never seen.',
+  steps: [
+    { text: 'STEP ONE open the key page' },
+    { text: 'STEP TWO sign in and create' },
+    { text: 'STEP THREE copy the key' },
+    { text: 'STEP FOUR paste it below' }
+  ],
+  oneKeyNote: 'ONE KEY NOTE per person.',
+  successLine: 'SUCCESS LINE you are set up.'
+};
+window.__copy = DEFAULT_COPY;
+window.__validateReply = { ok: true };
+window.__validateDelay = 0;
 
 window.chrome = {
   runtime: {
@@ -97,6 +115,13 @@ window.chrome = {
       new Promise((resolve) => {
         window.__lastSent = msg;
         window.__sent.push(msg);
+        if (msg.type === 'QF_ONBOARDING_COPY') {
+          return resolve(window.__copy === null ? { ok: false } : { ok: true, copy: window.__copy });
+        }
+        if (msg.type === 'QF_VALIDATE_KEY') {
+          const reply = window.__validateReply;
+          return setTimeout(() => resolve(reply), window.__validateDelay);
+        }
         if (msg.type !== 'QF_AI') return resolve({ ok: true });
         const reply = window.__reply === null ? null : { id: msg.id, ...window.__reply };
         setTimeout(() => resolve(reply), window.__replyDelay);
@@ -379,8 +404,9 @@ async function main() {
   check('timed out → busy cleared, a new action works', ta.value === 'AFTER TIMEOUT', `value = ${JSON.stringify(ta.value)}`);
 
   // 14 — every failure code ends in a bubble with the message and Retry;
-  // only the key/model codes also offer Open settings.
-  const SETTINGS_CODES = ['NO_API_KEY', 'BAD_KEY', 'BAD_MODEL'];
+  // only the key/model codes also offer Open settings. NO_API_KEY is the one
+  // exception: it opens the onboarding panel instead (case 20).
+  const SETTINGS_CODES = ['BAD_KEY', 'BAD_MODEL'];
   const OTHER_CODES = ['RATE_LIMIT', 'NETWORK', 'TIMEOUT', 'SERVER', 'BLOCKED', 'UNKNOWN'];
   for (const code of [...SETTINGS_CODES, ...OTHER_CODES]) {
     window.__reply = { ok: false, code, error: `readable message for ${code}` };
@@ -500,6 +526,228 @@ async function main() {
     ta.value === 'stale id text' && /took too long/i.test(shadowText()) && !!buttonNamed('Retry'),
     `value = ${JSON.stringify(ta.value)}, shadow = ${JSON.stringify(shadowText())}`);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  /* ------------------------------------------------- onboarding panel */
+
+  /** The onboarding panel, found by the paste box it carries rather than a class. */
+  const onboardingPanel = () =>
+    [...(shadow()?.querySelectorAll('.card') || [])].find((c) => c.querySelector('input')) || null;
+  const pasteBox = () => onboardingPanel()?.querySelector('input') || null;
+  const escape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  /** Start a grammar action on the textarea with no key set, so the panel opens. */
+  async function openPanelOn(value) {
+    window.__reply = { ok: false, code: 'NO_API_KEY', error: 'no key set' };
+    startOnTextarea('grammar', value);
+    await wait(50);
+  }
+
+  // 20 — a NO_API_KEY reply opens the onboarding panel, not a bubble; the
+  // action is over (not busy), and Escape closes the panel.
+  await openPanelOn('needs a key');
+  check('NO_API_KEY → onboarding panel opens, no failure bubble',
+    !!onboardingPanel() && !shadow()?.querySelector('.card.error') && !buttonNamed('Retry'),
+    `shadow = ${JSON.stringify(shadowText())}`);
+  check('NO_API_KEY → field untouched, indicator gone',
+    ta.value === 'needs a key' && !/Fixing/.test(shadowText()), `value = ${JSON.stringify(ta.value)}`);
+  $('ce').focus();
+  selectIn($('quoted').firstChild, 0, 6);
+  $('ce').dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+  await wait(400);
+  check('NO_API_KEY → busy is clear (the toolbar still appears while the panel is open)',
+    !!shadow()?.querySelector('.bar') && !!onboardingPanel(), `shadow = ${JSON.stringify(shadowText())}`);
+  escape();
+  check('panel → Escape closes it', !onboardingPanel(), `shadow = ${JSON.stringify(shadowText())}`);
+
+  // 21 — the panel carries the worker's copy: the why line, the four numbered
+  // steps, the one-key note; with no screenshot URLs it is text only.
+  await openPanelOn('panel content text');
+  const panelText = onboardingPanel()?.textContent || '';
+  check('panel → shows the why line', panelText.includes('WHY LINE'), `panel = ${JSON.stringify(panelText)}`);
+  check('panel → four numbered steps in order',
+    onboardingPanel()?.querySelectorAll('ol li').length === 4 &&
+      /STEP ONE.*STEP TWO.*STEP THREE.*STEP FOUR/.test(panelText), `panel = ${JSON.stringify(panelText)}`);
+  check('panel → shows the one-key note', panelText.includes('ONE KEY NOTE'), `panel = ${JSON.stringify(panelText)}`);
+  check('panel → no <img> when the copy has no screenshot URLs',
+    onboardingPanel()?.querySelectorAll('img').length === 0);
+  check('panel → Close button, a paste box and Get your free key are there',
+    !!buttonNamed('Close') && !!pasteBox() && !!buttonNamed('Get your free key'), `panel = ${JSON.stringify(panelText)}`);
+
+  // 22 — Get your free key asks the worker for a new tab (content scripts
+  // cannot open one); the panel stays. The options link opens the options page.
+  window.__sent = [];
+  buttonNamed('Get your free key')?.click();
+  await wait(0);
+  check('Get your free key → sends QF_OPEN_KEY_PAGE, panel stays open',
+    window.__sent.some((m) => m.type === 'QF_OPEN_KEY_PAGE') && !!onboardingPanel(),
+    `sent = ${JSON.stringify(window.__sent)}`);
+  window.__sent = [];
+  buttonNamed('Open settings')?.click();
+  await wait(0);
+  check('options link → sends QF_OPEN_OPTIONS',
+    window.__sent.some((m) => m.type === 'QF_OPEN_OPTIONS'), `sent = ${JSON.stringify(window.__sent)}`);
+  buttonNamed('Close')?.click();
+  check('panel → Close button closes it', !onboardingPanel(), `shadow = ${JSON.stringify(shadowText())}`);
+
+  // 23 — screenshot slots: an image that loads is shown under its step; one
+  // that does not (the file is not shipped) is dropped, so the panel is text
+  // only rather than a row of broken-image icons.
+  const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  window.__copy = { ...DEFAULT_COPY, steps: DEFAULT_COPY.steps.map((s, i) => ({ ...s, screenshotUrl: i < 2 ? PIXEL : `../images/onboarding-${i + 1}.png` })) };
+  await openPanelOn('screenshot slots text');
+  await new Promise((r) => realSetTimeout(r, 300)); // real time: image load/error is the browser's, not the fake clock's
+  const imgs = [...(onboardingPanel()?.querySelectorAll('ol li img') || [])];
+  check('panel → a screenshot that loads is shown under its step',
+    imgs.length === 2 && imgs.every((img) => !img.hidden && img.closest('li')) && /STEP ONE/.test(imgs[0]?.closest('li')?.textContent),
+    `imgs = ${imgs.length}, hidden = ${JSON.stringify(imgs.map((i) => i.hidden))}`);
+  check('panel → a missing screenshot is dropped, its step text stays',
+    onboardingPanel()?.querySelectorAll('ol li').length === 4 && /STEP FOUR/.test(onboardingPanel()?.textContent),
+    `panel = ${JSON.stringify(onboardingPanel()?.textContent)}`);
+  window.__copy = DEFAULT_COPY;
+  escape();
+
+  // 24 — with no worker to fetch the copy from, the failure still ends in
+  // the bubble with Open settings rather than in nothing.
+  window.__copy = null;
+  await openPanelOn('no copy text');
+  check('copy unavailable → falls back to the bubble with Retry and Open settings',
+    !onboardingPanel() && shadowText().includes('no key set') && !!buttonNamed('Retry') && !!buttonNamed('Open settings'),
+    `shadow = ${JSON.stringify(shadowText())}`);
+  window.__copy = DEFAULT_COPY;
+  escape();
+
+  /** Put `value` in the paste box the way typing does (an input event), or the way a paste does. */
+  function typeKey(value, { paste = false } = {}) {
+    const box = pasteBox();
+    box.value = value;
+    if (paste) box.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, composed: true }));
+    box.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true }));
+  }
+  const validateRequests = () => window.__sent.filter((m) => m.type === 'QF_VALIDATE_KEY');
+  const statusText = () => onboardingPanel()?.querySelector('.status')?.textContent || '';
+
+  // 25 — a key typed into the box is checked 400 ms after the last edit,
+  // trimmed, and saved by the worker on success (save: true); a pasted key is
+  // checked at once. The panel says it is checking.
+  await openPanelOn('validate on paste text');
+  window.__sent = [];
+  window.__validateDelay = Infinity;
+  typeKey('  AIza-typed-key  ');
+  await wait(399);
+  check('typed key → nothing sent before the 400 ms debounce', validateRequests().length === 0, `sent = ${JSON.stringify(window.__sent)}`);
+  await wait(1);
+  check('typed key → QF_VALIDATE_KEY with the trimmed key and save: true after 400 ms',
+    validateRequests().length === 1 && validateRequests()[0].apiKey === 'AIza-typed-key' && validateRequests()[0].save === true,
+    `sent = ${JSON.stringify(window.__sent)}`);
+  check('typed key → panel shows checking', /Checking/.test(statusText()), `status = ${JSON.stringify(statusText())}`);
+  window.__sent = [];
+  typeKey('AIza-pasted-key', { paste: true });
+  await wait(0);
+  check('pasted key → checked at once', validateRequests().length === 1 && validateRequests()[0].apiKey === 'AIza-pasted-key',
+    `sent = ${JSON.stringify(window.__sent)}`);
+  escape();
+
+  // 26 — a working key: the success line and Try again, which re-runs the
+  // pending action on the pending target with a fresh id and closes the panel.
+  window.__validateDelay = 0;
+  window.__validateReply = { ok: true };
+  getSelection().removeAllRanges();
+  ta.value = 'keep. no key here. keep.';
+  ta.focus();
+  ta.setSelectionRange(6, 17); // "no key here"
+  window.__reply = { ok: false, code: 'NO_API_KEY', error: 'no key set' };
+  window.__sent = [];
+  invoke('translate');
+  await wait(50);
+  const pendingRequest = window.__lastSent;
+  typeKey('AIza-good-key', { paste: true });
+  await wait(50);
+  check('valid key → success line and Try again',
+    statusText().includes('SUCCESS LINE') && !!buttonNamed('Try again') && !!onboardingPanel(),
+    `status = ${JSON.stringify(statusText())}`);
+  inp.focus();
+  inp.setSelectionRange(0, inp.value.length); // a re-capture would now pick this field
+  window.__reply = { ok: true, text: 'KEYED' };
+  buttonNamed('Try again')?.click();
+  await wait(50);
+  const tryAgainRequest = window.__lastSent;
+  check('Try again → re-sends the same action and text with a fresh id',
+    tryAgainRequest?.type === 'QF_AI' && tryAgainRequest.action === 'translate' && tryAgainRequest.text === 'no key here' &&
+      tryAgainRequest.id !== pendingRequest?.id, `sent = ${JSON.stringify(window.__sent)}`);
+  check('Try again → closes the panel and writes to the original target',
+    !onboardingPanel() && ta.value === 'keep. KEYED. keep.' && inp.value === 'first line second line',
+    `ta = ${JSON.stringify(ta.value)}, shadow = ${JSON.stringify(shadowText())}`);
+
+  // 27 — a rejected key: the reason, the box still editable, and a second
+  // paste checks again.
+  await openPanelOn('bad key text');
+  window.__validateReply = { ok: false, code: 'BAD_KEY', error: 'Gemini rejected the API key.' };
+  window.__sent = [];
+  typeKey('AIza-bad-key', { paste: true });
+  await wait(50);
+  check('rejected key → the reason is shown, no Try again',
+    statusText().includes('rejected the API key') && !buttonNamed('Try again'), `status = ${JSON.stringify(statusText())}`);
+  check('rejected key → the paste box is still editable', !!pasteBox() && !pasteBox().disabled && !pasteBox().readOnly);
+  window.__validateReply = { ok: true };
+  typeKey('AIza-second-try', { paste: true });
+  await wait(50);
+  check('second paste → checked again, success line',
+    validateRequests().length === 2 && validateRequests()[1].apiKey === 'AIza-second-try' && statusText().includes('SUCCESS LINE'),
+    `sent = ${JSON.stringify(validateRequests())}, status = ${JSON.stringify(statusText())}`);
+  escape();
+
+  // 28 — a reply for an older value lands after the box changed: dropped.
+  await openPanelOn('late validate text');
+  window.__validateDelay = 300;
+  window.__validateReply = { ok: true };
+  typeKey('AIza-first', { paste: true });   // reply due at +300
+  await wait(100);
+  window.__validateReply = { ok: false, code: 'BAD_KEY', error: 'second key rejected' };
+  typeKey('AIza-second', { paste: true });  // reply due at +400
+  await wait(250);                          // the first reply has landed by now
+  check('late reply for an older value → dropped, still checking the newer one',
+    /Checking/.test(statusText()) && !statusText().includes('SUCCESS LINE'), `status = ${JSON.stringify(statusText())}`);
+  await wait(100);
+  check('newer value → its own reply shows', statusText().includes('second key rejected'), `status = ${JSON.stringify(statusText())}`);
+  window.__validateDelay = 0;
+  escape();
+
+  // 29 — the never-stuck rules inside the panel: Still checking… with Cancel
+  // at 5 s, a timed-out line at 20 s, the box editable throughout.
+  await openPanelOn('hanging validate text');
+  window.__validateDelay = Infinity;
+  window.__validateReply = { ok: true };
+  typeKey('AIza-hanging', { paste: true });
+  await wait(4999);
+  check('validate hanging → no Cancel before 5 s', /Checking/.test(statusText()) && !buttonNamed('Cancel'), `status = ${JSON.stringify(statusText())}`);
+  await wait(1);
+  check('validate hanging → "Still checking…" with Cancel at 5 s',
+    /Still checking/.test(statusText()) && !!buttonNamed('Cancel'), `status = ${JSON.stringify(statusText())}`);
+  buttonNamed('Cancel')?.click();
+  await wait(0);
+  check('validate Cancel → checking stops, box still editable',
+    !buttonNamed('Cancel') && !/checking/i.test(statusText()) && !!pasteBox() && !pasteBox().disabled,
+    `status = ${JSON.stringify(statusText())}`);
+  typeKey('AIza-hanging-again', { paste: true });
+  await wait(19999);
+  check('validate hanging → still checking before 20 s', !!buttonNamed('Cancel'), `status = ${JSON.stringify(statusText())}`);
+  await wait(1);
+  check('validate hanging → timed-out line at 20 s, Cancel gone, box editable',
+    /took too long/i.test(statusText()) && !buttonNamed('Cancel') && !pasteBox().disabled, `status = ${JSON.stringify(statusText())}`);
+  window.__validateDelay = 0;
+  escape();
+
+  // 30 — a new action closes the panel: it is a setup surface for the action
+  // that opened it, and the new action replaces that pending one. A scroll
+  // does not close it (the user may scroll to find where they were writing).
+  await openPanelOn('panel then scroll');
+  document.dispatchEvent(new Event('scroll'));
+  check('panel → survives a scroll', !!onboardingPanel(), `shadow = ${JSON.stringify(shadowText())}`);
+  window.__reply = { ok: true, text: 'NEXT ACTION DONE' };
+  startOnTextarea('grammar', 'panel then new action');
+  await wait(50);
+  check('panel → closed by a new action', !onboardingPanel() && ta.value === 'NEXT ACTION DONE',
+    `shadow = ${JSON.stringify(shadowText())}, value = ${JSON.stringify(ta.value)}`);
+  await wait(2000);
 
   const failed = results.filter((r) => r.startsWith('FAIL')).length;
   document.getElementById('out').textContent =
