@@ -34,8 +34,9 @@ the Defender/Intune allowlist needs the *new* Store-assigned ID, not the one abo
 1. Open `edge://extensions` (or `chrome://extensions`).
 2. Turn on **Developer mode**.
 3. Click **Load unpacked** and pick this folder (`quickfix-extension`).
-4. The options page opens on first install. Paste a Gemini API key from
-   <https://aistudio.google.com/apikey> and click **Save settings**, then **Test connection**.
+4. The options page opens on first install. Follow the numbered steps at the top (**Get your
+   free key** opens <https://aistudio.google.com/apikey>), paste the key — it is checked and
+   saved the moment it lands — then **Test connection** if you want to see a real round trip.
 
 After any code change: hit the reload icon on the extension card, then reload the page you are
 testing on (the content script is injected at page load).
@@ -120,17 +121,27 @@ The page title becomes `ALL PASS` or `FAILED n`. `test/syntax-check.html` is the
 parse errors across every JS file — useful because a syntax error in a service worker is
 otherwise silent until you open its console.
 
-**`provider-test.html` — run this after touching `lib/ai.js` or `lib/config.js`.** It loads
-the provider seam (`runAction`, `listModels`, `getSettings`) as a real ES module against a
-stubbed `fetch` and `chrome.storage.local`, then checks the result object, every error code the
-provider can throw (key, model, rate limit, server, network, blocked, truncated, empty), what is
-sent to Gemini, the thinking-variant discovery and what it remembers in storage, the settings
-defaults, and the live model list: filtering, ordering, the 24 h cache and its key fingerprint,
-pagination, the built-in fallback, the `BAD_MODEL` self-heal (one refresh, one retry, one
-deadline) and the stale-model check preferring the cached live list. Time is faked, so the
-20 s hard stop is exercised in milliseconds. Same headless command as
-above with `provider-test.html` in place of `smoke-test.html` (and `--virtual-time-budget=10000`
-is plenty); the title reads `ALL PASS` or `FAILED n` the same way.
+**`provider-test.html` — run this after touching `lib/ai.js`, `lib/config.js` or
+`lib/never-stuck.js`.** It loads the provider seam (`runAction`, `validateKey`, `listModels`,
+`getSettings`) as a real ES module against a stubbed `fetch` and `chrome.storage.local`, then
+checks the result object, every error code the provider can throw (key, model, rate limit,
+server, network, blocked, truncated, empty), what is sent to Gemini, the thinking-variant
+discovery and what it remembers in storage, the settings defaults, the live model list:
+filtering, ordering, the 24 h cache and its key fingerprint, pagination, the built-in fallback,
+the `BAD_MODEL` self-heal (one refresh, one retry, one deadline) and the stale-model check
+preferring the cached live list; validate key (one GET with the key in the header, 400-key /
+401 / 403 / API-disabled → `BAD_KEY`, rate limit, server, network, a hang → `TIMEOUT` at 20 s,
+a blank key → `NO_API_KEY` with no fetch) and the `apiKey` override on `listModels`; and the
+never-stuck helper the options page wraps the Test button in (Still working at 5 s, Cancel,
+hard stop at 20 s, late replies dropped). 119 assertions. Time is faked, so the 20 s hard stop
+is exercised in milliseconds. Same headless command as above with `provider-test.html` in place
+of `smoke-test.html` (and `--virtual-time-budget=10000` is plenty); the title reads `ALL PASS`
+or `FAILED n` the same way.
+
+The options page has no harness by design (spec: checked by hand). After touching `options/`,
+open it from the extension card and walk the key section: paste a key and watch the
+checking → working / failed line, press Test with the network off to see Cancel at 5 s and the
+"took too long" line at 20 s.
 
 **`playground.html` — the real extension, on a real page.** A textarea, a single-line input, a
 contenteditable with a quoted thread, a same-origin iframe, an open shadow root and read-only
@@ -159,12 +170,15 @@ content/
 lib/
   config.js                settings schema, model/language/tone lists, storage helpers
   prompts.js               system instructions for both actions
-  ai.js                    Gemini client, live model list, error mapping, output cleanup
+  ai.js                    Gemini client, validate key, live model list, error mapping, output cleanup
+  never-stuck.js           the 5 s Cancel / 20 s hard-stop rules as a module, for extension pages
+  onboarding.js            key onboarding copy: why line, numbered steps, one-key note, key page URL
+images/                    optional onboarding-N.png screenshots, one per step (see below)
 options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
   smoke-test.html          drives content.js against a stubbed chrome API, with fake time (55 assertions)
-  provider-test.html       drives lib/ai.js against stubbed fetch + storage, with fake time (90 assertions)
+  provider-test.html       drives lib/ai.js and lib/never-stuck.js against stubbed fetch + storage, with fake time (119 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/
@@ -191,6 +205,22 @@ fetched with, never the key itself. A `BAD_MODEL` error mid-action refreshes the
 action's own 20 s deadline, saves the recommended model and retries once, so a retired model can
 never strand a user ([ADR 0004](docs/adr/0004-self-healing-model-list-and-never-stuck.md)). The
 hardcoded `MODELS` list is only the offline fallback.
+
+**Key onboarding.** Getting a stranger to a free key is the critical path
+([ADR 0001](docs/adr/0001-no-server-bring-your-own-key.md)), so the options page leads with it:
+a one-line why, numbered steps, a **Get your free key** button that opens
+`aistudio.google.com/apikey` in a new tab, and a "one key per person" note. The copy lives once,
+in `lib/onboarding.js`, so the in-page onboarding panel says the same thing. Pasting a key sends
+`QF_VALIDATE_KEY { apiKey }` to the service worker, which calls `validateKey` in `lib/ai.js` —
+one GET on the models endpoint with the key in the header, on its own 20 s deadline, mapped
+through the same error codes as an action — and the page shows checking → "Working — you're
+set up" or the failure reason with Try again. A valid key is saved at once (trimmed) and the
+model list is refreshed for it; `QF_LIST_MODELS` accepts an `apiKey` override for exactly that,
+so the page never has to save the rest of the form first. **Test connection** runs the key
+check, then one real grammar action so the thinking-variant diagnostic survives, under the
+never-stuck rules from `lib/never-stuck.js` (Cancel at 5 s, hard stop at 20 s). Screenshots are
+optional: drop `images/onboarding-1.png` … `onboarding-4.png` (one per step, in step order) into
+the package and each step shows its image; with no file there is no image and no broken icon.
 
 **Frame routing.** `Alt+G` is a browser-level command, so it arrives at the service worker, which
 broadcasts to every frame in the active tab. Each frame answers only if it owns focus

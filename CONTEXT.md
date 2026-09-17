@@ -102,6 +102,12 @@ The arrangement where each user supplies their own key, one per person, so Kalam
 and holds no data.
 _Avoid_: user-provided key, personal key
 
+**Validate key**:
+The cheapest authenticated call to the provider, made the moment a key is pasted, to answer
+"does this key work?" before the user runs anything. Ends in one of three states: checking,
+working, or failed with the reason. Exposed to extension pages as a background message only.
+_Avoid_: test key (the Test button runs a real action on top of it), verify, ping
+
 **Live model list**:
 The list of models fetched from the provider at runtime and cached for 24 h, so a retired model
 can never strand a user. The hardcoded list is only the offline fallback.

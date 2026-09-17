@@ -164,6 +164,7 @@ function reset() {
   window.__fetches = [];
   fetchScript = [];
   fakeTimers = [];
+  fakeNow = 0;
 }
 
 /** Run runAction to completion, driving fake time, and return { value } or { error }. */
@@ -191,13 +192,15 @@ const SETTINGS = {
 };
 
 const pendingTimers = () => fakeTimers.length;
+const now = () => fakeNow;
 
-window.__harness = { advance, pendingTimers, check, reset, run, script, after, never, abortError, http, reply, networkFailure, SETTINGS, results };
+window.__harness = { advance, now, pendingTimers, check, reset, run, script, after, never, abortError, http, reply, networkFailure, SETTINGS, results };
 </script>
 
 <script type="module">
-import { runAction, listModels, AiError } from '../lib/ai.js';
+import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
 import { getSettings, MAX_CHARS, MODELS } from '../lib/config.js';
+import { runNeverStuck } from '../lib/never-stuck.js';
 
 const H = window.__harness;
 const { check, reset, script, reply, http, after, never, abortError, networkFailure, SETTINGS, results } = H;
@@ -611,6 +614,166 @@ async function main() {
     window.__fetches[0].signal === window.__fetches[1].signal,
     `pending at 19.999 s = ${stillHealing}, settled at 20 s = ${healSettledAt20}, code = ${outcome?.error?.code}, fetches = ${window.__fetches.length}`);
   check('the timed-out heal leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  // 18 — validate key: the cheapest authenticated call (a GET on the models
+  // endpoint), ok or the same mapped errors as everything else.
+  /** Run validateKey to completion, driving fake time, and return { value } or { error }. */
+  const validate = (key) => H.run((k) => validateKey(k), key);
+  reset();
+  script(modelsPage([gm('gemini-3.7-flash', 'Gemini 3.7 Flash')]));
+  r = await validate('test-key');
+  check('validateKey resolves to { ok: true } on a 200 from the models endpoint',
+    r.value?.ok === true, `got ${JSON.stringify(r.value ?? r.error?.message)}`);
+  check('validateKey GETs the models endpoint once with the key in the header, not the URL',
+    window.__fetches.length === 1 && window.__fetches[0].url === 'https://generativelanguage.googleapis.com/v1beta/models' &&
+    window.__fetches[0].headers['x-goog-api-key'] === 'test-key',
+    JSON.stringify(window.__fetches));
+  check('a successful validate clears its deadline timer', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  /** Script the responses, validate `key`, and expect an AiError with `code`. */
+  async function expectValidateError(name, responses, code, { key = 'test-key', fetches } = {}) {
+    reset();
+    script(...responses);
+    const out = await validate(key);
+    const err = out.error;
+    const pass = err instanceof AiError && err.code === code &&
+      (fetches === undefined || window.__fetches.length === fetches);
+    check(name, pass,
+      `got ${err ? `${err.code}: ${err.message}` : JSON.stringify(out.value)}; fetches = ${window.__fetches.length}`);
+    return err;
+  }
+  await expectValidateError('validateKey: 400 mentioning the API key → BAD_KEY',
+    [http(400, { error: { message: 'API key not valid. Please pass a valid API key.' } })], 'BAD_KEY', { fetches: 1 });
+  await expectValidateError('validateKey: 401 → BAD_KEY', [http(401, {})], 'BAD_KEY', { fetches: 1 });
+  const plain403 = await expectValidateError('validateKey: 403 → BAD_KEY',
+    [http(403, { error: { message: 'PERMISSION_DENIED' } })], 'BAD_KEY', { fetches: 1 });
+  check('validateKey: a plain 403 does not claim the API is disabled', !/not enabled|disabled/i.test(plain403?.message || ''), plain403?.message);
+  const disabled = await expectValidateError('validateKey: 403 whose detail says the API is disabled → BAD_KEY',
+    [http(403, { error: { message: 'Generative Language API has not been used in project 123 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/generativelanguage.googleapis.com/overview then retry.' } })],
+    'BAD_KEY', { fetches: 1 });
+  check('validateKey: the API-disabled 403 says the API is not enabled for the project, distinct from a plain 403',
+    /Generative Language API/.test(disabled?.message || '') && /not enabled/i.test(disabled?.message || '') &&
+    disabled?.message !== plain403?.message, disabled?.message);
+  await expectValidateError('validateKey: 429 → RATE_LIMIT', [http(429, { error: { message: 'quota' } })], 'RATE_LIMIT', { fetches: 1 });
+  await expectValidateError('validateKey: 500 → SERVER', [http(500)], 'SERVER', { fetches: 1 });
+  await expectValidateError('validateKey: fetch throws → NETWORK', [after(0, networkFailure())], 'NETWORK', { fetches: 1 });
+  check('a failed validate clears its deadline timer', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+  await expectValidateError('validateKey: empty key → NO_API_KEY without a fetch', [modelsPage(LIVE)], 'NO_API_KEY', { key: '', fetches: 0 });
+  await expectValidateError('validateKey: whitespace-only key → NO_API_KEY without a fetch', [modelsPage(LIVE)], 'NO_API_KEY', { key: '  \n', fetches: 0 });
+  reset();
+  script(modelsPage(LIVE));
+  r = await validate('  padded-key ');
+  check('validateKey trims the key before sending it',
+    r.value?.ok === true && window.__fetches[0]?.headers['x-goog-api-key'] === 'padded-key', JSON.stringify(window.__fetches[0]?.headers));
+
+  reset();
+  script(never());
+  outcome = null;
+  const hangingValidate = validateKey('test-key').then(
+    (value) => { outcome = { value }; },
+    (error) => { outcome = { error }; }
+  );
+  await H.advance(19999);
+  const validatePending = outcome === null;
+  await H.advance(1);
+  const validateSettledAt20 = outcome !== null;
+  if (!validateSettledAt20) await H.advance(600000);
+  await hangingValidate;
+  check('validateKey: a hanging fetch → TIMEOUT at exactly 20 s',
+    validatePending && validateSettledAt20 && outcome?.error?.code === 'TIMEOUT',
+    `pending at 19.999 s = ${validatePending}, settled at 20 s = ${validateSettledAt20}, code = ${outcome?.error?.code}`);
+  check('a timed-out validate leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  // 19 — listModels can be told which key to use, so the options page can list
+  // models for a key that was just pasted and is not saved yet.
+  reset();
+  window.__storage = { modelCache: cachedFrom }; // fresh, fingerprinted for 'test-key'
+  script(modelsPage([gm('gemini-4.0-flash', 'Gemini 4.0 Flash')]));
+  r = await list(SETTINGS, { apiKey: 'pasted-key' });
+  check('listModels with an apiKey override sends that key, ignores the other key\'s cache, and fingerprints the override',
+    window.__fetches.length === 1 && window.__fetches[0].headers['x-goog-api-key'] === 'pasted-key' &&
+    ids(r.value?.models).join() === 'gemini-4.0-flash' &&
+    cache()?.keyFingerprint !== cachedFrom.keyFingerprint && !JSON.stringify(cache()).includes('pasted-key'),
+    `fetches = ${JSON.stringify(window.__fetches.map((f) => f.headers))}, got ${JSON.stringify(r.value ?? r.error?.message)}, cache = ${JSON.stringify(cache())}`);
+  reset();
+  window.__storage = { modelCache: cachedFrom };
+  script(modelsPage(LIVE));
+  r = await list({ ...SETTINGS, apiKey: '' }, { apiKey: 'test-key' });
+  check('an apiKey override with no saved key still hits the cache for that override',
+    window.__fetches.length === 0 && r.value?.source === 'live' && ids(r.value.models).join() === ids(cachedFrom.models).join(),
+    `fetches = ${window.__fetches.length}, got ${JSON.stringify(r.value ?? r.error?.message)}`);
+  reset();
+  script(modelsPage(LIVE));
+  r = await list({ ...SETTINGS, apiKey: '' }, { apiKey: '  ' });
+  check('a blank apiKey override with no saved key → fallback without fetching',
+    window.__fetches.length === 0 && r.value?.source === 'fallback',
+    `fetches = ${window.__fetches.length}, got ${JSON.stringify(r.value ?? r.error?.message)}`);
+
+  // 20 — the never-stuck helper (lib/never-stuck.js) the options page wraps the
+  // Test button in: Cancel offered at 5 s, hard stop at 20 s, a late reply
+  // after either is dropped. Same rules as the content script, as a module.
+  /** A task that settles at fake time `ms` (never, for Infinity); resolves with `value` or rejects with an Error. */
+  const settlingAt = (ms, value) => () => new Promise((resolve, reject) => {
+    if (ms === Infinity) return;
+    setTimeout(() => (value instanceof Error ? reject(value) : resolve(value)), ms);
+  });
+  /** Drive runNeverStuck with fake time; returns { outcome, stillWorkingAt, cancel, signal }. */
+  async function drive(task, { until = 25000, cancelAt = null } = {}) {
+    const rec = { outcome: null, stillWorkingAt: null, cancel: null, signal: null };
+    const p = runNeverStuck((signal) => { rec.signal = signal; return task(signal); }, {
+      onStillWorking: (cancel) => { rec.stillWorkingAt = fakeNowRead(); rec.cancel = cancel; }
+    }).then((o) => { rec.outcome = o; });
+    for (let t = 0; t < until && !rec.outcome; t += 1000) {
+      await H.advance(1000);
+      if (cancelAt !== null && t + 1000 >= cancelAt && rec.cancel && !rec.cancelled) {
+        rec.cancelled = true;
+        rec.cancel();
+        await H.advance(0); // let the outcome land before deciding whether to keep advancing
+      }
+    }
+    if (rec.outcome) await p;
+    return rec;
+  }
+  const fakeNowRead = () => H.now();
+
+  reset();
+  let ns = await drive(settlingAt(1000, 'fast'));
+  check('never-stuck: a task done at 1 s → { status: "done", value } with no Still-working call',
+    ns.outcome?.status === 'done' && ns.outcome.value === 'fast' && ns.stillWorkingAt === null,
+    JSON.stringify({ outcome: ns.outcome, stillWorkingAt: ns.stillWorkingAt }));
+  check('never-stuck: a finished run leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  reset();
+  ns = await drive(settlingAt(7000, 'slow'));
+  check('never-stuck: Still working is offered at 5 s and the task still completes at 7 s',
+    ns.stillWorkingAt === 5000 && ns.outcome?.status === 'done' && ns.outcome.value === 'slow',
+    JSON.stringify({ outcome: ns.outcome, stillWorkingAt: ns.stillWorkingAt }));
+
+  reset();
+  ns = await drive(settlingAt(Infinity), { cancelAt: 6000 });
+  check('never-stuck: Cancel at 6 s → { status: "cancelled" } at once, the signal aborted, no timers left',
+    ns.outcome?.status === 'cancelled' && ns.signal?.aborted === true && H.pendingTimers() === 0 && H.now() === 6000,
+    JSON.stringify({ outcome: ns.outcome, aborted: ns.signal?.aborted, pending: H.pendingTimers(), now: H.now() }));
+
+  reset();
+  const lateTask = settlingAt(9000, 'late');
+  ns = await drive(lateTask, { cancelAt: 6000 });
+  await H.advance(10000); // the task settles at 9 s, after the cancel
+  check('never-stuck: a reply that lands after Cancel is dropped (outcome stays cancelled)',
+    ns.outcome?.status === 'cancelled', JSON.stringify(ns.outcome));
+
+  reset();
+  ns = await drive(settlingAt(Infinity));
+  check('never-stuck: a task that never settles → { status: "timed-out" } at exactly 20 s, signal aborted',
+    ns.outcome?.status === 'timed-out' && ns.signal?.aborted === true && H.now() === 20000 && ns.stillWorkingAt === 5000,
+    JSON.stringify({ outcome: ns.outcome, aborted: ns.signal?.aborted, now: H.now() }));
+  check('never-stuck: a timed-out run leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  reset();
+  ns = await drive(settlingAt(2000, new Error('boom')));
+  check('never-stuck: a task that rejects → { status: "failed", error }',
+    ns.outcome?.status === 'failed' && ns.outcome.error?.message === 'boom' && H.pendingTimers() === 0,
+    JSON.stringify({ outcome: ns.outcome, pending: H.pendingTimers() }));
 
   const failed = results.filter((x) => x.startsWith('FAIL')).length;
   document.getElementById('out').textContent =

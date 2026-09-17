@@ -12,8 +12,16 @@
       <p class="sub">Inline grammar fixing and translation — invisible until invoked.</p>
     </header>
 
-    <section>
-      <h2>Gemini</h2>
+    <section id="keySection">
+      <h2>Your Gemini key</h2>
+      <p class="why" id="keyWhy"></p>
+
+      <ol class="steps" id="keySteps"></ol>
+
+      <p class="row getkey">
+        <button type="button" id="getKey">Get your free key</button>
+        <span class="hint inline">Opens Google AI Studio in a new tab.</span>
+      </p>
 
       <label class="field">
         <span class="label">API key</span>
@@ -22,11 +30,11 @@
                  placeholder="AIza…" />
           <button type="button" class="ghost" id="toggleKey">Show</button>
         </span>
+        <span class="key-status" id="keyStatus" aria-live="polite"></span>
+        <span class="hint" id="oneKeyNote"></span>
         <span class="hint">
-          Get a free key from Google AI Studio at
-          <span class="mono">aistudio.google.com/apikey</span>. Stored with
-          <span class="mono">chrome.storage.local</span> — it stays on this machine and is
-          never synced to your browser account.
+          Stored with <span class="mono">chrome.storage.local</span> — it stays on this machine
+          and is never synced to your browser account.
         </span>
       </label>
 

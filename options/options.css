@@ -138,10 +138,37 @@ button.ghost {
   background: linear-gradient(to top, var(--bg) 70%, transparent);
 }
 
-.status, .test-result { font-size: 13px; }
-.status.ok, .test-result.ok { color: var(--ok); }
-.status.bad, .test-result.bad { color: var(--bad); }
-.test-result.busy { color: var(--muted); }
+.status, .test-result, .key-status { font-size: 13px; }
+.status.ok, .test-result.ok, .key-status.ok { color: var(--ok); }
+.status.bad, .test-result.bad, .key-status.bad { color: var(--bad); }
+.test-result.busy, .key-status.busy { color: var(--muted); }
+
+/* Key onboarding: the why line, numbered steps with optional screenshots, and
+   the checking / working / failed line under the key field. */
+.why { margin: 0 0 12px; font-size: 15px; }
+.steps { margin: 0 0 14px; padding-left: 22px; }
+.steps li { margin-bottom: 6px; }
+.steps img {
+  display: block;
+  max-width: 100%;
+  max-height: 160px;
+  margin: 6px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.getkey { margin: 0 0 16px; }
+.key-status { display: block; margin-top: 6px; min-height: 1.2em; }
+.key-status:empty { display: none; }
+
+/* Inline Try again / Cancel inside a status line */
+button.link {
+  padding: 0 0 0 6px;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
+button.link:hover { filter: none; }
 
 .shortcuts { margin: 0 0 12px; }
 

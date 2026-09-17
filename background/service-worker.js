@@ -12,7 +12,7 @@
  */
 
 import { getSettings } from '../lib/config.js';
-import { runAction, listModels, AiError } from '../lib/ai.js';
+import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
 
 const MENU_ROOT = 'qf-root';
 const MENU_GRAMMAR = 'qf-grammar';
@@ -122,6 +122,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // async
   }
 
+  if (msg?.type === 'QF_VALIDATE_KEY') {
+    handleValidateKey(msg).then(sendResponse);
+    return true; // async
+  }
+
   if (msg?.type === 'QF_OPEN_OPTIONS') {
     chrome.runtime.openOptionsPage();
     sendResponse({ ok: true });
@@ -152,17 +157,39 @@ async function handleAi(msg) {
 
 /**
  * The live model list for the options page (ADR 0004). `force` bypasses the
- * 24 h cache — the Refresh models button. listModels never throws for a
- * failed fetch (it falls back to the built-in list), so an error here is a
- * genuine bug, not an offline user.
+ * 24 h cache — the Refresh models button. `apiKey` lists models for a key the
+ * page holds but has not saved yet. listModels never throws for a failed
+ * fetch (it falls back to the built-in list), so an error here is a genuine
+ * bug, not an offline user.
  */
 async function handleListModels(msg) {
   try {
     const settings = await getSettings();
-    const { models, fetchedAt, source } = await listModels(settings, { force: Boolean(msg.force) });
+    const { models, fetchedAt, source } = await listModels(settings, {
+      force: Boolean(msg.force),
+      apiKey: typeof msg.apiKey === 'string' ? msg.apiKey : undefined
+    });
     return { ok: true, models, fetchedAt, source };
   } catch (err) {
     console.error('[Kalam]', err);
     return { ok: false, error: 'Could not load the model list: ' + (err?.message || err) };
+  }
+}
+
+/**
+ * Key onboarding (ADR 0001): check a key the moment it is pasted. The key
+ * travels in the message because it may not be saved yet. Only extension
+ * pages and the content script can send runtime messages, never a web page.
+ */
+async function handleValidateKey(msg) {
+  try {
+    await validateKey(msg.apiKey);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof AiError) {
+      return { ok: false, code: err.code, error: err.message };
+    }
+    console.error('[Kalam]', err);
+    return { ok: false, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
   }
 }
