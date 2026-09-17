@@ -96,7 +96,7 @@ If a page steals `Alt+G`/`Alt+T`, rebind them at `edge://extensions/shortcuts` o
 
 ## Testing
 
-Three harnesses in `test/`, in increasing order of realism.
+Four harnesses in `test/`, in increasing order of realism.
 
 **`smoke-test.html` — run this after touching `content.js`.** It loads the content script into a
 normal page against a stubbed `chrome.*` API, then drives it through 18 assertions: whole-field
@@ -117,6 +117,15 @@ The page title becomes `ALL PASS` or `FAILED n`. `test/syntax-check.html` is the
 parse errors across every JS file — useful because a syntax error in a service worker is
 otherwise silent until you open its console.
 
+**`provider-test.html` — run this after touching `lib/ai.js` or `lib/config.js`.** It loads
+the provider seam (`runAction`, `getSettings`) as a real ES module against a stubbed `fetch` and
+`chrome.storage.local`, then checks the result object, every error code the provider can throw
+(key, model, rate limit, server, network, blocked, truncated, empty), what is sent to Gemini,
+the thinking-variant discovery and what it remembers in storage, and the new settings defaults.
+Time is faked, so the 20 s hard stop is exercised in milliseconds. Same headless command as
+above with `provider-test.html` in place of `smoke-test.html` (and `--virtual-time-budget=10000`
+is plenty); the title reads `ALL PASS` or `FAILED n` the same way.
+
 **`playground.html` — the real extension, on a real page.** A textarea, a single-line input, a
 contenteditable with a quoted thread, a same-origin iframe, an open shadow root and read-only
 text, plus a live log of the `input`/`change` events each field receives — which is the thing
@@ -126,8 +135,8 @@ is alive on the page.
 To use it from disk you must tick **Allow access to file URLs** on the extension's details page;
 extensions get no access to `file://` otherwise, and the liveness check will report failure.
 
-**Real sites.** Neither harness exercises the Gemini call, the keyboard shortcuts, or the context
-menu — those need the extension actually loaded and a key in settings. FreshService's ticket
+**Real sites.** None of the harnesses exercises a real Gemini call, the keyboard shortcuts, or
+the context menu — those need the extension actually loaded and a key in settings. FreshService's ticket
 editor and Outlook on the web are the two named targets in the requirements and are worth testing
 by hand.
 
@@ -149,6 +158,7 @@ options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
   smoke-test.html          drives content.js against a stubbed chrome API (18 assertions)
+  provider-test.html       drives lib/ai.js against stubbed fetch + storage, with fake time (54 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/

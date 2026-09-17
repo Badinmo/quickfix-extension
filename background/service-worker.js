@@ -129,8 +129,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 async function handleAi(msg) {
   try {
     const settings = await getSettings();
-    const text = await runAction(msg.action, msg.text, settings);
-    return { ok: true, text };
+    const { text, via } = await runAction(msg.action, msg.text, settings);
+    return { ok: true, text, via };
   } catch (err) {
     if (err instanceof AiError) {
       return { ok: false, code: err.code, error: err.message };

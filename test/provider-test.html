@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Kalam provider test</title></head>
+<body>
+<!--
+  Drives lib/ai.js (the provider seam) against a stubbed fetch and a stubbed
+  chrome.storage.local, so runAction's result object, its error codes, what it
+  sends to Gemini and what it remembers in storage can all be checked without a
+  key, a network, or an extension context. This is the test to run after
+  touching lib/ai.js or lib/config.js.
+
+  Time is faked: setTimeout/clearTimeout are replaced with a scheduler the
+  harness advances by hand, so the 20 s hard stop is tested in milliseconds.
+
+    & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
+      --disable-gpu --no-first-run --user-data-dir="$env:TEMP\qf-edge" `
+      --allow-file-access-from-files --virtual-time-budget=10000 --dump-dom `
+      "file:///C:/Users/motha/Projects/Extensions/New%20folder/quickfix-extension/quickfix-extension/test/provider-test.html"
+
+  ...or open it in a browser and read the results (needs a browser that allows
+  ES modules from file://, which is what --allow-file-access-from-files does).
+-->
+<style>
+  body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px; }
+  #out { font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap;
+         background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; }
+</style>
+
+<h1>Kalam provider test</h1>
+<pre id="out">running…</pre>
+
+<script>
+/* ------------------------------------------------------------ fake time */
+// Installed before the module loads. ai.js calls the global setTimeout, so
+// its deadline lands in this scheduler and the harness decides when it fires.
+
+const realSetTimeout = window.setTimeout.bind(window);
+let fakeNow = 0;
+let fakeTimers = [];
+let fakeSeq = 0;
+
+window.setTimeout = (fn, ms = 0, ...args) => {
+  fakeTimers.push({ id: ++fakeSeq, at: fakeNow + Math.max(0, ms), fn, args });
+  return fakeSeq;
+};
+window.clearTimeout = (id) => {
+  fakeTimers = fakeTimers.filter((t) => t.id !== id);
+};
+
+/** Let every pending promise reaction run. */
+const flush = () => new Promise((r) => realSetTimeout(r, 0));
+
+/** Advance fake time by `ms`, firing due timers in order and flushing between them. */
+async function advance(ms) {
+  const target = fakeNow + ms;
+  await flush(); // let work already queued (e.g. a storage read before the fetch) register its timers first
+  for (;;) {
+    fakeTimers.sort((a, b) => a.at - b.at || a.id - b.id);
+    const next = fakeTimers[0];
+    if (!next || next.at > target) break;
+    fakeTimers.shift();
+    fakeNow = next.at;
+    next.fn(...next.args);
+    await flush();
+  }
+  fakeNow = target;
+  await flush();
+}
+
+/* ---------------------------------------------------------- chrome stub */
+
+window.__storage = {};
+window.chrome = {
+  storage: {
+    local: {
+      get: (keys) => {
+        const out = {};
+        if (typeof keys === 'string') keys = [keys];
+        if (Array.isArray(keys)) {
+          for (const k of keys) if (k in window.__storage) out[k] = window.__storage[k];
+        } else if (keys && typeof keys === 'object') {
+          for (const k of Object.keys(keys)) out[k] = k in window.__storage ? window.__storage[k] : keys[k];
+        } else {
+          Object.assign(out, window.__storage);
+        }
+        return Promise.resolve(JSON.parse(JSON.stringify(out)));
+      },
+      set: (patch) => {
+        Object.assign(window.__storage, JSON.parse(JSON.stringify(patch)));
+        return Promise.resolve();
+      }
+    }
+  }
+};
+
+/* ----------------------------------------------------------- fetch stub */
+// Each call to fetch takes the next scripted response off the queue. A script
+// entry is a function (url, init) => Promise<Response>. What was sent is
+// recorded in __fetches as { url, headers, body (parsed) }.
+
+window.__fetches = [];
+let fetchScript = [];
+
+const abortError = () => new DOMException('The user aborted a request.', 'AbortError');
+
+window.fetch = (url, init = {}) => {
+  let body = null;
+  try { body = JSON.parse(init.body); } catch { /* not JSON */ }
+  window.__fetches.push({ url: String(url), headers: init.headers || {}, body });
+  const next = fetchScript.shift();
+  if (!next) return Promise.reject(new Error('harness: no scripted response left for fetch'));
+  return next(url, init);
+};
+
+/** Wait `ms` of fake time, then settle with `result`; rejects with AbortError if the signal fires first. */
+function after(ms, result) {
+  return (_url, init) =>
+    new Promise((resolve, reject) => {
+      const signal = init.signal;
+      if (signal?.aborted) return reject(abortError());
+      const timer = setTimeout(() => {
+        if (signal?.aborted) return;
+        result instanceof Error ? reject(result) : resolve(result);
+      }, ms);
+      signal?.addEventListener('abort', () => { clearTimeout(timer); reject(abortError()); });
+    });
+}
+
+/** A fetch that never settles on its own — only an abort ends it. */
+const never = () => after(Infinity, null);
+
+/**
+ * The parts of a Response the provider reads. A plain object rather than a real
+ * Response so json() settles in a microtask and fake time stays deterministic.
+ * No payload means a non-JSON body: json() rejects, as the real one would.
+ */
+const http = (status, payload) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  json: () => (payload === undefined ? Promise.reject(new SyntaxError('not JSON')) : Promise.resolve(payload))
+});
+
+const reply = (text, extra = {}) =>
+  http(200, { candidates: [{ content: { parts: [{ text }] }, finishReason: 'STOP', ...extra }] });
+
+const networkFailure = () => new TypeError('Failed to fetch');
+
+function script(...responses) {
+  fetchScript = responses.map((r) => (typeof r === 'function' ? r : after(0, r)));
+}
+
+/* ------------------------------------------------------------- test rig */
+
+const results = [];
+function check(name, pass, detail) {
+  results.push(`${pass ? 'PASS' : 'FAIL'}  ${name}${pass || !detail ? '' : '\n        ' + detail}`);
+  // Written as we go, so a case that hangs still leaves the earlier results visible.
+  document.getElementById('out').textContent = results.join('\n') + '\n\nrunning…';
+}
+
+function reset() {
+  window.__storage = {};
+  window.__fetches = [];
+  fetchScript = [];
+  fakeTimers = [];
+}
+
+/** Run runAction to completion, driving fake time, and return { value } or { error }. */
+async function run(runAction, action, text, settings) {
+  let outcome = null;
+  const p = runAction(action, text, settings).then(
+    (value) => { outcome = { value }; },
+    (error) => { outcome = { error }; }
+  );
+  // Scripted responses settle at fake time 0 unless a case says otherwise;
+  // advancing past the deadline guarantees termination either way.
+  for (let i = 0; i < 20 && !outcome; i++) await advance(5000);
+  await p;
+  return outcome;
+}
+
+const SETTINGS = {
+  apiKey: 'test-key',
+  model: 'gemini-test-model',
+  targetLanguage: 'Arabic',
+  secondaryLanguage: 'English',
+  autoSwapLanguage: true,
+  tone: 'preserve',
+  customInstructions: ''
+};
+
+const pendingTimers = () => fakeTimers.length;
+
+window.__harness = { advance, pendingTimers, check, reset, run, script, after, never, abortError, http, reply, networkFailure, SETTINGS, results };
+</script>
+
+<script type="module">
+import { runAction, AiError } from '../lib/ai.js';
+import { getSettings, MAX_CHARS } from '../lib/config.js';
+
+const H = window.__harness;
+const { check, reset, script, reply, http, after, never, abortError, networkFailure, SETTINGS, results } = H;
+const run = (action, text, settings = SETTINGS) => H.run(runAction, action, text, settings);
+const lastBody = () => window.__fetches[window.__fetches.length - 1]?.body;
+
+async function main() {
+  // 1 — result shape.
+  reset();
+  script(reply('We were hoping you could take a look.'));
+  let r = await run('grammar', 'we was hoping you could took a look.');
+  check('runAction resolves to { text, via: "gemini" }',
+    r.value && r.value.text === 'We were hoping you could take a look.' && r.value.via === 'gemini',
+    `got ${JSON.stringify(r.value ?? r.error?.message)}`);
+  check('a successful action clears its deadline timer', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  // 2 — the 20 s hard stop is one budget for the whole action, not one per
+  // thinking-variant attempt. Three variants are rejected (5 s each), then the
+  // fourth request hangs: the action must abort at 20 s from the start, not at
+  // 15 s + a fresh timeout.
+  reset();
+  const invalid = () => http(400, { error: { message: 'Unknown name "thinkingLevel"' } });
+  script(after(5000, invalid()), after(5000, invalid()), after(5000, invalid()), never());
+  let outcome = null;
+  const pending = runAction('grammar', 'hello there', SETTINGS).then(
+    (value) => { outcome = { value }; },
+    (error) => { outcome = { error }; }
+  );
+  await H.advance(19999);
+  check('never-resolving fetch → still pending at 19.999 s', outcome === null,
+    `outcome = ${JSON.stringify(outcome?.error?.code ?? outcome?.value)}`);
+  await H.advance(1);
+  const settledAt20 = outcome !== null;
+  if (!settledAt20) await H.advance(600000); // let a wrong (longer) timeout fire so the harness still finishes
+  await pending;
+  check('never-resolving fetch → TIMEOUT at 20 s of fake time, after 3 variant attempts',
+    settledAt20 && outcome?.error instanceof AiError && outcome.error.code === 'TIMEOUT' && window.__fetches.length === 4,
+    `settled at 20 s = ${settledAt20}, code = ${outcome?.error?.code}, fetches = ${window.__fetches.length}`);
+  check('TIMEOUT message is worded for the user',
+    /took too long/i.test(outcome?.error?.message || '') && !/gemini/i.test(outcome?.error?.message || ''),
+    `message = ${JSON.stringify(outcome?.error?.message)}`);
+  check('TIMEOUT leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  // 3 — headers arrive but the body never finishes: still TIMEOUT, not a
+  // misreported empty response.
+  reset();
+  script((_url, init) => Promise.resolve({
+    ok: true,
+    status: 200,
+    json: () => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(abortError())))
+  }));
+  r = await run('grammar', 'hello there');
+  check('body that never finishes → TIMEOUT at 20 s', r.error?.code === 'TIMEOUT',
+    `got ${r.error?.code}: ${r.error?.message}`);
+
+  /** Script the responses, run one grammar action, and expect an AiError with `code`. */
+  async function expectError(name, responses, code, { text = 'some text', settings = SETTINGS, fetches } = {}) {
+    reset();
+    script(...responses);
+    const out = await run('grammar', text, settings);
+    const err = out.error;
+    const pass = err instanceof AiError && err.code === code &&
+      (fetches === undefined || window.__fetches.length === fetches);
+    check(name, pass,
+      `got ${err ? `${err.code}: ${err.message}` : JSON.stringify(out.value)}; fetches = ${window.__fetches.length}`);
+    return err;
+  }
+
+  // 4 — HTTP status → error code, unchanged from before this harness existed.
+  await expectError('400 mentioning the API key → BAD_KEY, no retry',
+    [http(400, { error: { message: 'API key not valid. Please pass a valid API key.' } })], 'BAD_KEY', { fetches: 1 });
+  await expectError('400 for anything else → INVALID_ARGUMENT after every variant is tried',
+    Array(6).fill(0).map(() => http(400, { error: { message: 'Unknown name "thinkingLevel"' } })), 'INVALID_ARGUMENT', { fetches: 6 });
+  await expectError('401 → BAD_KEY', [http(401, {})], 'BAD_KEY', { fetches: 1 });
+  await expectError('403 → BAD_KEY', [http(403, { error: { message: 'PERMISSION_DENIED' } })], 'BAD_KEY', { fetches: 1 });
+  await expectError('404 → BAD_MODEL', [http(404, { error: { message: 'model not found' } })], 'BAD_MODEL', { fetches: 1 });
+  await expectError('429 → RATE_LIMIT', [http(429, { error: { message: 'quota' } })], 'RATE_LIMIT', { fetches: 1 });
+  await expectError('500 → SERVER', [http(500)], 'SERVER', { fetches: 1 });
+  await expectError('503 → SERVER', [http(503, { error: { message: 'overloaded' } })], 'SERVER', { fetches: 1 });
+  await expectError('418 (unmapped) → HTTP_418', [http(418, {})], 'HTTP_418', { fetches: 1 });
+  await expectError('fetch throws → NETWORK, no retry', [after(0, networkFailure())], 'NETWORK', { fetches: 1 });
+  check('a failed action clears its deadline timer', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  // 5 — 200 responses that are not usable.
+  await expectError('promptFeedback.blockReason → BLOCKED',
+    [http(200, { promptFeedback: { blockReason: 'SAFETY' }, candidates: [] })], 'BLOCKED');
+  await expectError('finishReason SAFETY → BLOCKED', [reply('partial', { finishReason: 'SAFETY' })], 'BLOCKED');
+  await expectError('finishReason PROHIBITED_CONTENT → BLOCKED', [reply('partial', { finishReason: 'PROHIBITED_CONTENT' })], 'BLOCKED');
+  const truncated = await expectError('finishReason MAX_TOKENS with text → TRUNCATED',
+    [reply('cut off mid', { finishReason: 'MAX_TOKENS' })], 'TRUNCATED');
+  check('TRUNCATED with text explains the selection is too long', /too long/.test(truncated?.message || ''), truncated?.message);
+  const thoughtOut = await expectError('finishReason MAX_TOKENS with no text → TRUNCATED',
+    [http(200, { candidates: [{ content: { parts: [] }, finishReason: 'MAX_TOKENS' }] })], 'TRUNCATED');
+  check('TRUNCATED with no text blames the thinking budget', /thinking/.test(thoughtOut?.message || ''), thoughtOut?.message);
+  await expectError('no candidates → EMPTY_RESPONSE', [http(200, { candidates: [] })], 'EMPTY_RESPONSE');
+  await expectError('non-JSON 200 body → EMPTY_RESPONSE', [http(200)], 'EMPTY_RESPONSE');
+  await expectError('candidate with only whitespace → EMPTY_RESPONSE', [reply('  \n ')], 'EMPTY_RESPONSE');
+
+  // 6 — pre-checks that never reach the network.
+  await expectError('no API key → NO_API_KEY, nothing fetched', [reply('x')], 'NO_API_KEY',
+    { settings: { ...SETTINGS, apiKey: '' }, fetches: 0 });
+  await expectError('empty text → EMPTY, nothing fetched', [reply('x')], 'EMPTY', { text: '   \n', fetches: 0 });
+  await expectError('text over MAX_CHARS → TOO_LONG, nothing fetched', [reply('x')], 'TOO_LONG',
+    { text: 'a'.repeat(MAX_CHARS + 1), fetches: 0 });
+  reset();
+  script(reply('ok'));
+  r = await run('grammar', 'a'.repeat(MAX_CHARS));
+  check('text exactly MAX_CHARS is sent', r.value?.text === 'ok' && window.__fetches.length === 1, JSON.stringify(r.error?.code));
+
+  // 7 — what is sent.
+  reset();
+  script(reply('ok'));
+  r = await run('translate', 'hello', { ...SETTINGS, model: 'gemini-x/y', apiKey: 'KEY-123', targetLanguage: 'French' });
+  const sent = window.__fetches[0];
+  check('request goes to the model in settings, URL-encoded',
+    sent?.url === 'https://generativelanguage.googleapis.com/v1beta/models/gemini-x%2Fy:generateContent', sent?.url);
+  check('key travels in the x-goog-api-key header, not the URL',
+    sent?.headers['x-goog-api-key'] === 'KEY-123' && !sent.url.includes('KEY-123'), JSON.stringify(sent?.headers));
+  check('the selection is the only user content, fenced by the sentinels',
+    sent?.body?.contents?.length === 1 && sent.body.contents[0].parts[0].text.includes('<<<TEXT\nhello\nTEXT>>>'),
+    JSON.stringify(sent?.body?.contents));
+  check('translate builds a system instruction naming the target language',
+    /French/.test(sent?.body?.systemInstruction?.parts?.[0]?.text || ''));
+  check('translate uses the lower temperature', sent?.body?.generationConfig?.temperature === 0.2,
+    JSON.stringify(sent?.body?.generationConfig));
+
+  // 8 — thought parts never reach the document.
+  reset();
+  script(http(200, { candidates: [{ content: { parts: [
+    { thought: true, text: 'Let me reason about this…' }, { text: 'Clean answer' }
+  ] }, finishReason: 'STOP' }] }));
+  r = await run('grammar', 'dirty answer');
+  check('parts flagged thought are filtered out', r.value?.text === 'Clean answer', JSON.stringify(r.value ?? r.error?.message));
+
+  // 9 — output cleanup.
+  async function cleaned(raw, original) {
+    reset();
+    script(reply(raw));
+    const out = await run('grammar', original);
+    return out.value?.text ?? `ERROR ${out.error?.code}`;
+  }
+  check('markdown fence around the whole reply is stripped',
+    (await cleaned('```text\nfixed text\n```', 'fixd text')) === 'fixed text');
+  check('fence is kept when the original contained one',
+    (await cleaned('```\ncode\n```', 'some ```code``` here')) === '```\ncode\n```');
+  check('matching double quotes are stripped when the original had none',
+    (await cleaned('"fixed text"', 'fixd text')) === 'fixed text');
+  check('curly quotes are stripped too',
+    (await cleaned('“fixed text”', 'fixd text')) === 'fixed text');
+  check('quotes are kept when the original started with one',
+    (await cleaned('"fixed text"', '"fixd text"')) === '"fixed text"');
+  check('echoed sentinels are stripped',
+    (await cleaned('<<<TEXT\nfixed text\nTEXT>>>', 'fixd text')) === 'fixed text');
+  check('CRLF is normalised and the result trimmed',
+    (await cleaned('  line one\r\nline two \n', 'l1 l2')) === 'line one\nline two');
+
+  // 10 — thinking-variant discovery: cheapest first, remembered, remembered goes first.
+  reset();
+  script(http(400, { error: { message: 'Unknown name "thinkingLevel"' } }), reply('ok'));
+  r = await run('grammar', 'text');
+  check('first attempt asks for thinkingLevel: minimal',
+    window.__fetches[0]?.body?.generationConfig?.thinkingConfig?.thinkingLevel === 'minimal',
+    JSON.stringify(window.__fetches[0]?.body?.generationConfig));
+  check('an INVALID_ARGUMENT retries with the next variant and succeeds',
+    r.value?.text === 'ok' && window.__fetches[1]?.body?.generationConfig?.thinkingConfig?.thinkingLevel === 'MINIMAL',
+    JSON.stringify(window.__fetches[1]?.body?.generationConfig));
+  check('the variant that worked is remembered for this model in storage',
+    window.__storage.thinkingVariants?.[SETTINGS.model] === 'LEVEL-MINIMAL', JSON.stringify(window.__storage));
+
+  reset();
+  window.__storage = { thinkingVariants: { [SETTINGS.model]: 'budget-0' } };
+  script(reply('ok'));
+  r = await run('grammar', 'text');
+  check('the remembered variant is tried first',
+    window.__fetches.length === 1 && window.__fetches[0]?.body?.generationConfig?.thinkingConfig?.thinkingBudget === 0,
+    JSON.stringify(window.__fetches[0]?.body?.generationConfig));
+
+  reset();
+  window.__storage = { thinkingVariants: { [SETTINGS.model]: 'none' } };
+  script(reply('ok'));
+  r = await run('grammar', 'text');
+  check('remembered "none" sends no thinkingConfig at all',
+    window.__fetches.length === 1 && !('thinkingConfig' in window.__fetches[0].body.generationConfig),
+    JSON.stringify(window.__fetches[0]?.body?.generationConfig));
+
+  reset();
+  window.__storage = { thinkingVariants: { [SETTINGS.model]: 'budget-0' } };
+  script(http(400, { error: { message: 'nope' } }), reply('ok'));
+  r = await run('grammar', 'text');
+  check('a rejected remembered variant falls back to the cheapest-first order',
+    window.__fetches[1]?.body?.generationConfig?.thinkingConfig?.thinkingLevel === 'minimal' &&
+    window.__storage.thinkingVariants[SETTINGS.model] === 'level-minimal',
+    JSON.stringify(window.__fetches[1]?.body?.generationConfig) + ' ' + JSON.stringify(window.__storage));
+
+  // 11 — settings schema: the provider seam's new fields have defaults.
+  reset();
+  const s = await getSettings();
+  check('getSettings() returns provider: "gemini" when unset', s.provider === 'gemini', `provider = ${JSON.stringify(s.provider)}`);
+  check('getSettings() returns onDeviceTranslate: false when unset', s.onDeviceTranslate === false,
+    `onDeviceTranslate = ${JSON.stringify(s.onDeviceTranslate)}`);
+  reset();
+  window.__storage = { provider: 'gemini', onDeviceTranslate: true };
+  check('getSettings() returns a stored onDeviceTranslate', (await getSettings()).onDeviceTranslate === true);
+
+  const failed = results.filter((x) => x.startsWith('FAIL')).length;
+  document.getElementById('out').textContent =
+    results.join('\n') + `\n\n${results.length - failed}/${results.length} passed` +
+    (failed ? `  — ${failed} FAILED` : '  — all good');
+  document.title = failed ? `FAILED ${failed}` : 'ALL PASS';
+}
+
+main().catch((err) => {
+  document.getElementById('out').textContent =
+    'harness crashed: ' + err.message + '\n' + err.stack + '\n\n' + results.join('\n');
+  document.title = 'HARNESS CRASH';
+});
+</script>
+</body>
+</html>
