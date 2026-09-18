@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kalima Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 16px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+    color: #1a1a1a;
+    background: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e5e7eb; background: #111827; }
+    a { color: #93c5fd; }
+    code { background: #1f2937; }
+    .callout { background: #052e16; border-color: #14532d; color: #bbf7d0; }
+  }
+  h1 { font-size: 1.6em; margin-bottom: 0.2em; }
+  h2 { font-size: 1.15em; margin-top: 2em; border-top: 1px solid rgba(128,128,128,.25); padding-top: 1em; }
+  .updated { color: #6b7280; font-style: italic; margin-top: 0; }
+  .callout {
+    background: #f0fdf4; border: 1px solid #86efac; color: #14532d;
+    border-radius: 8px; padding: 12px 16px; margin: 1.5em 0;
+  }
+  code { background: #f1f5f9; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  a { color: #2563eb; }
+</style>
+</head>
+<body>
+
+<h1>Kalima Privacy Policy</h1>
+<p class="updated">Last updated: 2026-09-18</p>
+
+<p>Kalima is a browser extension for personal use that fixes grammar and translates text
+inside web pages. This policy explains what it does and does not do with your data.</p>
+
+<p class="callout"><strong>No middleman: your text goes straight from your browser to your own AI
+account. We never see it.</strong></p>
+
+<h2>What Kalima reads</h2>
+<p>Kalima only reads text you have explicitly selected (or the single form field you are
+currently focused in, if you trigger it with nothing selected), and only at the exact
+moment you invoke it — by keyboard shortcut, the right-click menu, or the floating
+toolbar.</p>
+<p>Kalima never reads, scans, or stores anything else: not the rest of the page, not other
+open tabs, not browsing history, not content you have not selected. It has no background
+listeners that run without you explicitly triggering an action.</p>
+
+<h2>Where your text goes</h2>
+<p>The text you select is sent to Google's Gemini API
+(<code>https://generativelanguage.googleapis.com</code>), using your own personal Gemini API key, so
+it can be corrected or translated. That request is made directly from the extension's
+background service worker to Google's servers, under your own Google account. Google's
+handling of that data is governed by
+<a href="https://ai.google.dev/gemini-api/terms">Google's own privacy policy and Gemini API terms</a> —
+Kalima has no control over Google's retention or use of that data beyond what those terms
+describe.</p>
+<p>No other server, analytics service, or third party ever receives your text. Kalima has no
+backend of its own, so there is nothing in between your browser and your AI account.
+Gemini is the only cloud provider Kalima supports today.</p>
+
+<h2>On-device translate (optional, experimental)</h2>
+<p>On a machine that supports it, Settings offers an experimental "On-device translate"
+toggle, off by default. When it is turned on and the browser's own built-in Translator
+supports the language pair, a translate action runs entirely on your machine using that
+built-in model: the selected text is never sent to Gemini, or anywhere else, for that
+action. When the toggle is off, or the pair isn't supported, translate goes to Gemini as
+described above. This setting never affects the grammar action, which always uses
+Gemini. The listing describes this feature as available in Chrome; it happens to also
+work in Microsoft Edge (version 148 and later), which ships its own implementation of
+the same browser API.</p>
+
+<h2>What Kalima stores</h2>
+<p>Your Gemini API key and your settings (target language, tone, and similar preferences)
+are stored locally on your device only, using the browser's <code>chrome.storage.local</code> API.
+This data:</p>
+<ul>
+  <li>never leaves your device except as part of a request you triggered to Google's Gemini
+  API (the API key is sent as a request header, as required to authenticate that call)</li>
+  <li>is never synced through your browser account (Chrome/Edge sync is deliberately not
+  used for this data)</li>
+  <li>is never sent to the extension's developer or any analytics service — there is no
+  analytics or telemetry of any kind in this extension</li>
+</ul>
+
+<h2>Data retention and deletion</h2>
+<p>Removing the extension deletes all locally stored settings and your API key
+immediately, since they exist only in the browser's local extension storage. Kalima
+does not retain a copy anywhere else, because it has no server of its own.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes, the "Last updated" date above will change accordingly.</p>
+
+<h2>Contact</h2>
+<p>This is a personal-use, individually distributed extension. If you have questions about
+this policy, contact the person who shared this extension's listing with you.</p>
+
+</body>
+</html>
