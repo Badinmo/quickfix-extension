@@ -572,6 +572,10 @@
     let onboardEl = null;
     let onboardClose = null;
 
+    // Fix and Translate's accent, shared by the CSS below and the toolbar's
+    // inline icon strokes so the two never drift apart.
+    const SAGE = '#8FB89B';
+
     const CSS = `
       :host { all: initial; }
       .layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483647;
@@ -591,13 +595,18 @@
       @keyframes qfspin { to { transform: rotate(360deg); } }
       @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s; } }
 
-      .bar { position: absolute; pointer-events: auto; display: flex; gap: 2px;
-             background: #111827; border-radius: 9px; padding: 3px;
-             box-shadow: 0 6px 20px rgba(15,23,42,.3); }
-      .bar button { all: unset; cursor: pointer; color: #e5e7eb; font: inherit;
-                    padding: 5px 10px; border-radius: 6px; white-space: nowrap; }
-      .bar button:hover { background: #374151; color: #fff; }
-      .bar .sep { width: 1px; background: #374151; margin: 4px 1px; }
+      .bar { position: absolute; pointer-events: auto; display: flex; gap: 10px;
+             background: #1B1D21; border-radius: 20px; padding: 10px;
+             box-shadow: 0 8px 24px rgba(10,12,16,.35); }
+      .bar button { all: unset; cursor: pointer; box-sizing: border-box;
+                    width: 64px; height: 64px; border-radius: 999px;
+                    display: flex; flex-direction: column; align-items: center; justify-content: center;
+                    gap: 2px; background: #262A31; border: 1.5px solid ${SAGE};
+                    color: #ECEAE5; font: inherit; text-align: center; }
+      .bar button:hover { background: #2E333B; }
+      .bar button svg { flex: none; }
+      .bar button span { display: block; max-width: 46px; font-size: 9px; line-height: 1.15;
+                    font-weight: 700; letter-spacing: .01em; }
 
       .panel .head { display: flex; align-items: center; justify-content: space-between;
                      gap: 12px; margin-bottom: 6px; font-size: 11px;
@@ -932,29 +941,38 @@
       fn?.();
     }
 
+    /** A single circular toolbar button: an icon plus a label beneath it, always visible (never icon-only). */
+    function toolbarButton({ label, title, icon }) {
+      const btn = document.createElement('button');
+      btn.title = title;
+      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="${SAGE}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${icon}</svg><span></span>`;
+      btn.querySelector('span').textContent = label;
+      return btn;
+    }
+
     function showToolbar(rect) {
       hideToolbar();
       const r = ensure();
       barEl = document.createElement('div');
       barEl.className = 'bar';
 
-      const fix = document.createElement('button');
-      fix.textContent = 'Fix grammar';
-      fix.title = 'Fix grammar (Alt+G)';
-
-      const sep = document.createElement('span');
-      sep.className = 'sep';
-
-      const tr = document.createElement('button');
-      tr.textContent = 'Translate';
-      tr.title = `Translate to ${settings.targetLanguage} (Alt+T)`;
+      const fix = toolbarButton({
+        label: 'Fix grammar',
+        title: 'Fix grammar (Alt+G)',
+        icon: '<circle cx="10" cy="10" r="7.2"/><path d="M6.5 10.2l2.2 2.2 4.8-5"/>'
+      });
+      const tr = toolbarButton({
+        label: 'Translate',
+        title: `Translate to ${settings.targetLanguage} (Alt+T)`,
+        icon: '<path d="M3 7h9M9 4l3 3-3 3"/><path d="M17 13H8m4 3l-3-3 3-3"/>'
+      });
 
       // Do not let the click steal the selection out from under us.
       barEl.addEventListener('mousedown', (e) => e.preventDefault());
       fix.addEventListener('click', () => run('grammar'));
       tr.addEventListener('click', () => run('translate'));
 
-      barEl.append(fix, sep, tr);
+      barEl.append(fix, tr);
       r.layer.appendChild(barEl);
       place(barEl, rect, 6);
     }
