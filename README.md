@@ -183,7 +183,7 @@ the download-consent helpers (`pairKey`/`hasConsent`/`addConsent`) and `download
 nothing needed downloading, rejecting with a named `AbortError` when cancelled mid-download, and
 a plain error naming the browser or the language when either is missing (#10) — and the BCP-47
 table covering every `LANGUAGES` entry; and the never-stuck helper the options page wraps the
-Test button in (Still working at 5 s, Cancel, hard stop at 20 s, late replies dropped). 180
+Test button in (Still working at 5 s, Cancel, hard stop at 20 s, late replies dropped). 183
 assertions. Time is faked, so the 20 s hard stop is exercised in milliseconds. Same headless
 command as above with `provider-test.html` in place of `smoke-test.html` (and
 `--virtual-time-budget=10000` is plenty); the title reads `ALL PASS` or `FAILED n` the same way.
@@ -233,7 +233,7 @@ popup/                     toolbar popup: status, quick language switch, link to
 test/
   smoke-test.html          drives content.js against a stubbed chrome API, with fake time (88 assertions)
   provider-test.html       drives lib/ai.js, lib/on-device.js and lib/never-stuck.js against stubbed
-                           fetch + storage + Translator/LanguageDetector, with fake time (164 assertions)
+                           fetch + storage + Translator/LanguageDetector, with fake time (183 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/
@@ -255,12 +255,22 @@ the field. The content script never calls the API itself: page CSP would block i
 and this keeps the API key out of anything the page can reach.
 
 **Live model list.** The model picker is fetched from Gemini (`listModels` in `lib/ai.js`, behind
-the `QF_LIST_MODELS` message), filtered to models that can generate content, Flash first, and
-cached for 24 h in `chrome.storage.local` under `modelCache` with a fingerprint of the key it was
-fetched with, never the key itself. A `BAD_MODEL` error mid-action refreshes the list once on the
-action's own 20 s deadline, saves the recommended model and retries once, so a retired model can
-never strand a user ([ADR 0004](docs/adr/0004-self-healing-model-list-and-never-stuck.md)). The
-hardcoded `MODELS` list is only the offline fallback.
+the `QF_LIST_MODELS` message) and filtered by an **allowlist, not a blocklist**: only the mainline
+`gemini-<version>-flash` / `gemini-<version>-flash-lite` family (`FLASH_FAMILY` in `lib/ai.js`)
+survives, capped to the newest three Flash models plus the newest Flash-Lite. Everything else —
+Pro, every preview/experimental build, image/audio/TTS/live variants, Gemma, embeddings, whatever
+niche model ships next — is dropped, on purpose: this is a fix/translate tool, not a model picker,
+so "generic, fast, cheap, currently supported" is the whole brief. Because the match is on shape
+rather than a hardcoded version number, a future `gemini-4.0-flash` appears automatically and a
+retired one simply stops being returned by the endpoint. The list is cached for 24 h in
+`chrome.storage.local` under `modelCache` with a fingerprint of the key it was fetched with, never
+the key itself. A `BAD_MODEL` error mid-action refreshes the list once on the action's own 20 s
+deadline, saves the recommended model and retries once, so a retired model can never strand a user
+([ADR 0004](docs/adr/0004-self-healing-model-list-and-never-stuck.md)). The hardcoded `MODELS` list
+(currently 3.8/3.7/3.6-flash + 3.5-flash-lite) is only the offline fallback and before-a-key
+default; it is worth re-checking against
+[ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models) every so
+often since the live path can't help before a key is entered.
 
 **On-device translate (experimental, ADR 0003).** `runAction` decides its route inside the
 action's one 20 s deadline, before the key check: a translate with the "On-device translate"

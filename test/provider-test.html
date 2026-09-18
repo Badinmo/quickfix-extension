@@ -481,8 +481,11 @@ async function main() {
   check('getSettings() returns a stored onDeviceConsentedPairs',
     JSON.stringify((await getSettings()).onDeviceConsentedPairs) === JSON.stringify(['English>Arabic']));
 
-  // 12 — the live model list: only content-generating models, Flash first,
-  // newest generation floating up, the recommended one marked.
+  // 12 — the live model list: the Flash family only (no Pro, no preview, no
+  // niche modalities), Flash first, newest generation floating up, the
+  // recommended one marked. A fix/translate tool has no business listing
+  // anything outside "generic, fast, cheap, currently supported" (see the
+  // comment on FLASH_FAMILY in lib/ai.js for why this is an allowlist).
   const LIVE = [
     gm('embedding-001', 'Embedding 001', ['embedContent']),
     gm('gemini-3.1-pro-preview', 'Gemini 3.1 Pro Preview'),
@@ -496,15 +499,15 @@ async function main() {
   reset();
   script(modelsPage(LIVE));
   r = await list();
-  check('listModels keeps only models that support generateContent, Flash first, newest first within each group',
+  check('listModels keeps only the Flash family — Pro, Pro Preview, embeddings, images and AQA all dropped',
     JSON.stringify(ids(r.value?.models)) === JSON.stringify([
-      'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.2-pro', 'gemini-3.1-pro-preview'
+      'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'
     ]),
     `got ${JSON.stringify(ids(r.value?.models))} ${r.error ? r.error.code + ': ' + r.error.message : ''}`);
   check('listModels resolves to { models, fetchedAt, source: "live" } with labels from displayName',
     r.value?.source === 'live' && typeof r.value.fetchedAt === 'number' && r.value.models[0]?.label === 'Gemini 3.8 Flash',
     JSON.stringify(r.value));
-  check('the first Flash model is marked recommended when the hardcoded default is not offered',
+  check('the hardcoded default is marked recommended when the key offers it',
     r.value?.models.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.8-flash',
     JSON.stringify(r.value?.models));
   check('the models list is fetched with the key in the header, not the URL',
@@ -516,7 +519,7 @@ async function main() {
   // itself never goes into the cache.
   const cache = () => window.__storage.modelCache;
   check('a live fetch is cached in storage as modelCache { models, fetchedAt, keyFingerprint }',
-    Array.isArray(cache()?.models) && cache().models.length === 5 && typeof cache().fetchedAt === 'number' &&
+    Array.isArray(cache()?.models) && cache().models.length === 3 && typeof cache().fetchedAt === 'number' &&
     typeof cache().keyFingerprint === 'string' && cache().keyFingerprint.length > 0,
     JSON.stringify(cache()));
   check('the cache never contains the API key', !JSON.stringify(cache() ?? {}).includes('test-key'), JSON.stringify(cache()));
@@ -556,12 +559,36 @@ async function main() {
     `fetches = ${window.__fetches.length}, got ${JSON.stringify(r.value ?? r.error?.message)}`);
 
   reset();
-  script(modelsPage([gm('gemini-3.8-flash', 'Gemini 3.8 Flash'), gm('gemini-3.10-flash', 'Gemini 3.10 Flash'), gm('gemini-3.7-flash', 'Gemini 3.7 Flash')]));
+  script(modelsPage([gm('gemini-3.8-flash', 'Gemini 3.8 Flash'), gm('gemini-3.10-flash', 'Gemini 3.10 Flash'), gm('gemini-3.9-flash', 'Gemini 3.9 Flash')]));
   r = await list();
   check('the hardcoded default is the recommended one when the key offers it, even when a newer Flash exists',
-    r.value?.models.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.7-flash', JSON.stringify(r.value?.models));
-  check('ordering is numeric-aware: 3.10 floats above 3.8',
-    ids(r.value?.models).join() === 'gemini-3.10-flash,gemini-3.8-flash,gemini-3.7-flash', JSON.stringify(ids(r.value?.models)));
+    r.value?.models.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.8-flash', JSON.stringify(r.value?.models));
+  check('ordering is numeric-aware: 3.10 floats above 3.9',
+    ids(r.value?.models).join() === 'gemini-3.10-flash,gemini-3.9-flash,gemini-3.8-flash', JSON.stringify(ids(r.value?.models)));
+
+  reset();
+  script(modelsPage([gm('gemini-3.6-flash', 'Gemini 3.6 Flash'), gm('gemini-3.9-flash', 'Gemini 3.9 Flash')]));
+  r = await list();
+  check('the newest Flash model is marked recommended when the hardcoded default is not offered',
+    r.value?.models.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.9-flash',
+    JSON.stringify(r.value?.models));
+
+  // The picker stays short even when Google keeps many generations live at
+  // once: the newest few Flash models, plus the newest Lite — not everything
+  // still technically reachable.
+  reset();
+  script(modelsPage([
+    gm('gemini-3.10-flash', 'Gemini 3.10 Flash'), gm('gemini-3.9-flash', 'Gemini 3.9 Flash'),
+    gm('gemini-3.8-flash', 'Gemini 3.8 Flash'), gm('gemini-3.7-flash', 'Gemini 3.7 Flash'),
+    gm('gemini-3.6-flash', 'Gemini 3.6 Flash'), gm('gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite'),
+    gm('gemini-3.4-flash-lite', 'Gemini 3.4 Flash-Lite')
+  ]));
+  r = await list();
+  check('the list is capped to the newest 3 Flash models plus the newest Lite, even with more available',
+    JSON.stringify(ids(r.value?.models)) === JSON.stringify([
+      'gemini-3.10-flash', 'gemini-3.9-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'
+    ]),
+    JSON.stringify(ids(r.value?.models)));
 
   // 14 — any failure falls back to the hardcoded list and leaves a good cache alone.
   const staleCache = { ...cachedFrom, fetchedAt: Date.now() - 25 * HOUR };
@@ -582,6 +609,8 @@ async function main() {
   await expectFallback('HTTP 500 → fallback', [http(500)]);
   await expectFallback('an empty models list → fallback', [modelsPage([])]);
   await expectFallback('a list with nothing that generates content → fallback', [modelsPage([gm('embedding-001', 'Embedding', ['embedContent'])])]);
+  await expectFallback('a list with only Pro / preview models (no Flash family) → fallback',
+    [modelsPage([gm('gemini-3.1-pro-preview', 'Gemini 3.1 Pro Preview'), gm('gemini-3.2-pro', 'Gemini 3.2 Pro')])]);
   reset();
   window.__storage = { modelCache: JSON.parse(JSON.stringify(staleCache)) };
   script(never());
@@ -599,15 +628,15 @@ async function main() {
   check('a failed list fetch leaves no timer behind', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
   await expectFallback('no API key → fallback without fetching', [modelsPage(LIVE)], { settings: { ...SETTINGS, apiKey: '' }, fetches: 0 });
   check('the hardcoded fallback marks the default model recommended',
-    MODELS.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.7-flash', JSON.stringify(MODELS));
+    MODELS.filter((m) => m.recommended).map((m) => m.id).join() === 'gemini-3.8-flash', JSON.stringify(MODELS));
 
   // 15 — pagination is followed until there is no nextPageToken.
   reset();
-  script(modelsPage([gm('gemini-3.2-pro', 'Gemini 3.2 Pro')], 'page-2'), modelsPage([gm('gemini-3.8-flash', 'Gemini 3.8 Flash')]));
+  script(modelsPage([gm('gemini-3.6-flash', 'Gemini 3.6 Flash')], 'page-2'), modelsPage([gm('gemini-3.8-flash', 'Gemini 3.8 Flash')]));
   r = await list();
   check('a nextPageToken is followed and the pages are merged before ordering',
     window.__fetches.length === 2 && window.__fetches[1]?.url.includes('pageToken=page-2') &&
-    ids(r.value?.models).join() === 'gemini-3.8-flash,gemini-3.2-pro',
+    ids(r.value?.models).join() === 'gemini-3.8-flash,gemini-3.6-flash',
     `fetches = ${JSON.stringify(window.__fetches.map((f) => f.url))}, got ${JSON.stringify(ids(r.value?.models))}`);
 
   // 16 — the stale-model check in getSettings prefers the cached live list:
@@ -625,7 +654,7 @@ async function main() {
   reset();
   window.__storage = { model: 'gemini-retired', modelCache: liveCache };
   check('getSettings falls back to the default when the saved model is in neither list',
-    (await getSettings()).model === 'gemini-3.7-flash', `model = ${(await getSettings()).model}`);
+    (await getSettings()).model === 'gemini-3.8-flash', `model = ${(await getSettings()).model}`);
 
   // 17 — a retired model heals itself: BAD_MODEL refreshes the list once
   // (bypassing the cache), saves the recommended model, retries once.
@@ -657,7 +686,8 @@ async function main() {
   await expectError('BAD_MODEL twice → BAD_MODEL after exactly one retry',
     [notFound(), modelsPage(LIVE), notFound()], 'BAD_MODEL', { fetches: 3 });
   await expectError('BAD_MODEL when the fresh list still recommends the same model → BAD_MODEL without a retry',
-    [notFound(), modelsPage([gm('gemini-test-model', 'Test')])], 'BAD_MODEL', { fetches: 2 });
+    [notFound(), modelsPage([gm('gemini-3.6-flash', 'Gemini 3.6 Flash')])], 'BAD_MODEL',
+    { settings: { ...SETTINGS, model: 'gemini-3.6-flash' }, fetches: 2 });
 
   // The heal shares the action's 20 s budget: 15 s to get the 404, then a
   // hanging list fetch → TIMEOUT at 20 s from the start, not 35 s.
