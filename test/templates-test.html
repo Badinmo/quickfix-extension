@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Kalima templates test</title></head>
+<body>
+<!--
+  Drives lib/templates.js against a stubbed chrome.storage.local, so save,
+  list, delete, rename and fill can all be checked without an extension
+  context. This is the test to run after touching lib/templates.js.
+
+    & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
+      --disable-gpu --no-first-run --user-data-dir="$env:TEMP\qf-edge" `
+      --allow-file-access-from-files --virtual-time-budget=10000 --dump-dom `
+      "file:///C:/Users/motha/Projects/Extensions/New%20folder/quickfix-extension/quickfix-extension/test/templates-test.html"
+
+  ...or open it in a browser and read the results (needs a browser that allows
+  ES modules from file://, which is what --allow-file-access-from-files does).
+-->
+<style>
+  body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px; }
+  #out { font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap;
+         background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; }
+</style>
+
+<h1>Kalima templates test</h1>
+<pre id="out">running…</pre>
+
+<script>
+/* ---------------------------------------------------------- chrome stub */
+
+window.__storage = {};
+window.chrome = {
+  storage: {
+    local: {
+      get: (keys) => {
+        const out = {};
+        if (typeof keys === 'string') keys = [keys];
+        if (Array.isArray(keys)) {
+          for (const k of keys) if (k in window.__storage) out[k] = window.__storage[k];
+        } else if (keys && typeof keys === 'object') {
+          for (const k of Object.keys(keys)) out[k] = k in window.__storage ? window.__storage[k] : keys[k];
+        } else {
+          Object.assign(out, window.__storage);
+        }
+        return Promise.resolve(JSON.parse(JSON.stringify(out)));
+      },
+      set: (patch) => {
+        Object.assign(window.__storage, JSON.parse(JSON.stringify(patch)));
+        return Promise.resolve();
+      }
+    }
+  }
+};
+
+function reset() {
+  window.__storage = {};
+}
+
+/* ------------------------------------------------------------- test rig */
+
+const results = [];
+function check(name, pass, detail) {
+  results.push(`${pass ? 'PASS' : 'FAIL'}  ${name}${pass || !detail ? '' : '\n        ' + detail}`);
+  document.getElementById('out').textContent = results.join('\n') + '\n\nrunning…';
+}
+</script>
+
+<script type="module">
+import { saveTemplate, listTemplates, deleteTemplate, renameTemplate, fillTemplate, MAX_TEMPLATES } from '../lib/templates.js';
+
+/** A field spanning the first occurrence of `needle` in `text`, so fixtures never rely on hand-counted offsets. */
+function at(text, needle, label) {
+  const start = text.indexOf(needle);
+  if (start < 0) throw new Error(`fixture bug: ${JSON.stringify(needle)} not found`);
+  return { start, end: start + needle.length, label };
+}
+
+async function main() {
+  // 1 — save round-trips through storage and list().
+  reset();
+  const text1 = 'Dear John, thank you for your patience regarding ORD1234 placed on 3 March.';
+  const t1 = await saveTemplate({
+    name: 'Order follow-up email',
+    text: text1,
+    fields: [
+      at(text1, 'John', 'Name'),
+      at(text1, 'ORD1234', 'Order number'),
+      at(text1, '3 March', 'Date')
+    ]
+  });
+  check('saveTemplate returns a template with an id', typeof t1.id === 'string' && t1.id.length > 0);
+  let list = await listTemplates();
+  check('listTemplates sees the saved template', list.length === 1 && list[0].name === 'Order follow-up email',
+    `list = ${JSON.stringify(list)}`);
+  check('the saved template kept its fields', list[0].fields.length === 3, `fields = ${JSON.stringify(list[0].fields)}`);
+
+  // 2 — a second, independent template.
+  const text2 = 'Hi Amy, something has come up and I need to move Tuesday.';
+  const t2 = await saveTemplate({
+    name: 'Meeting reschedule note',
+    text: text2,
+    fields: [
+      at(text2, 'Amy', 'Name'),
+      at(text2, 'Tuesday', 'Meeting')
+    ]
+  });
+  list = await listTemplates();
+  check('listTemplates sees both templates after a second save', list.length === 2, `list = ${JSON.stringify(list)}`);
+
+  // 3 — rename.
+  await renameTemplate(t1.id, 'Renamed follow-up');
+  list = await listTemplates();
+  check('renameTemplate changes only the targeted template\'s name',
+    list.find((t) => t.id === t1.id)?.name === 'Renamed follow-up' &&
+    list.find((t) => t.id === t2.id)?.name === 'Meeting reschedule note',
+    `list = ${JSON.stringify(list)}`);
+
+  let renameErr = null;
+  try { await renameTemplate('no-such-id', 'x'); } catch (e) { renameErr = e; }
+  check('renaming a template that no longer exists throws', !!renameErr, String(renameErr));
+
+  // 4 — delete.
+  await deleteTemplate(t2.id);
+  list = await listTemplates();
+  check('deleteTemplate removes only the targeted template',
+    list.length === 1 && list[0].id === t1.id, `list = ${JSON.stringify(list)}`);
+
+  // 5 — fill: every field given a value.
+  const filledFull = fillTemplate(list[0], { Name: 'Priya', 'Order number': 'ORD9999', Date: '9 September' });
+  check('fillTemplate substitutes every field at its correct position',
+    filledFull === 'Dear Priya, thank you for your patience regarding ORD9999 placed on 9 September.',
+    `filled = ${JSON.stringify(filledFull)}`);
+
+  // 6 — fill: fields left unfilled get a visible placeholder, not the original example value.
+  const filledNone = fillTemplate(list[0], {});
+  check('an unfilled field becomes a visible [Label] placeholder',
+    filledNone === 'Dear [Name], thank you for your patience regarding [Order number] placed on [Date].',
+    `filled = ${JSON.stringify(filledNone)}`);
+  check('an unfilled field never replays the saved example value',
+    !filledNone.includes('John') && !filledNone.includes('ORD1234'), `filled = ${JSON.stringify(filledNone)}`);
+
+  // 7 — fill: a partial set of values leaves only the missing ones as placeholders.
+  const filledPartial = fillTemplate(list[0], { Name: 'Priya' });
+  check('a partially filled template mixes real values and placeholders',
+    filledPartial === 'Dear Priya, thank you for your patience regarding [Order number] placed on [Date].',
+    `filled = ${JSON.stringify(filledPartial)}`);
+
+  // 8 — the cap.
+  reset();
+  for (let i = 0; i < MAX_TEMPLATES; i++) {
+    await saveTemplate({ name: `t${i}`, text: 'x', fields: [] });
+  }
+  let capErr = null;
+  try {
+    await saveTemplate({ name: 'one too many', text: 'x', fields: [] });
+  } catch (e) {
+    capErr = e;
+  }
+  check(`saving past the ${MAX_TEMPLATES}-template cap throws`, !!capErr, String(capErr));
+  check('the cap error is a plain error, not a provider error code', capErr && capErr.code === undefined,
+    `code = ${capErr?.code}`);
+  list = await listTemplates();
+  check('the over-cap save was not persisted', list.length === MAX_TEMPLATES, `length = ${list.length}`);
+
+  // 9 — static check: no fetch call, no dependency on the provider seam.
+  const srcXhr = new XMLHttpRequest();
+  srcXhr.open('GET', '../lib/templates.js', false);
+  srcXhr.send(null);
+  const src = srcXhr.responseText;
+  check('lib/templates.js makes no fetch call', !/\bfetch\s*\(/.test(src));
+  check('lib/templates.js does not import from lib/ai.js', !/from\s+['"][^'"]*\/ai\.js['"]/.test(src));
+
+  const failed = results.filter((x) => x.startsWith('FAIL')).length;
+  document.getElementById('out').textContent =
+    results.join('\n') + `\n\n${results.length - failed}/${results.length} passed` +
+    (failed ? `  — ${failed} FAILED` : '  — all good');
+  document.title = failed ? `FAILED ${failed}` : 'ALL PASS';
+}
+
+main().catch((err) => {
+  document.getElementById('out').textContent =
+    'harness crashed: ' + err.message + '\n' + err.stack + '\n\n' + results.join('\n');
+  document.title = 'HARNESS CRASH';
+});
+</script>
+</body>
+</html>

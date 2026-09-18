@@ -130,7 +130,7 @@ If a page steals `Alt+G`/`Alt+T`, rebind them at `edge://extensions/shortcuts` o
 
 ## Testing
 
-Four harnesses in `test/`, in increasing order of realism.
+Five harnesses in `test/`, in increasing order of realism.
 
 **`smoke-test.html` — run this after touching `content.js`.** It loads the content script into a
 normal page against a stubbed `chrome.*` API, then drives it through 88 assertions: whole-field
@@ -188,6 +188,16 @@ assertions. Time is faked, so the 20 s hard stop is exercised in milliseconds. S
 command as above with `provider-test.html` in place of `smoke-test.html` (and
 `--virtual-time-budget=10000` is plenty); the title reads `ALL PASS` or `FAILED n` the same way.
 
+**`templates-test.html` — run this after touching `lib/templates.js`.** It loads the template
+storage module as a real ES module against a stubbed `chrome.storage.local`, then checks save,
+list, delete and rename round-tripping; filling a template (every field given a value, none
+given, and a partial mix), including that an unfilled field shows a `[Label]` placeholder and
+never replays the example value the template was saved with; renaming a template that no longer
+exists; the `MAX_TEMPLATES` cap throwing a plain error (not a provider error code) and leaving
+storage unchanged; and a static source check that the module makes no `fetch` call and does not
+import from `lib/ai.js`. 16 assertions, no fake time needed. Same headless command as above with
+`templates-test.html` in place of `smoke-test.html`.
+
 The options page has no harness by design (spec: checked by hand). After touching `options/`,
 open it from the extension card and walk the key section: paste a key and watch the
 checking → working / failed line, press Test with the network off to see Cancel at 5 s and the
@@ -225,6 +235,7 @@ lib/
   on-device-offscreen.js   the service worker's half of the offscreen bridge (Chrome only — see below)
   never-stuck.js           the 5 s Cancel / 20 s hard-stop rules as a module, for extension pages
   onboarding.js            key onboarding copy: why line, numbered steps, one-key note, key page URL
+  templates.js             local template storage: save/list/delete/rename/fill, no network, no AI
 offscreen/
   on-device.html/.js       invisible document that runs Translator/LanguageDetector for the worker on Chrome
 images/                    optional onboarding-N.png screenshots, one per step (see below)
@@ -234,6 +245,7 @@ test/
   smoke-test.html          drives content.js against a stubbed chrome API, with fake time (88 assertions)
   provider-test.html       drives lib/ai.js, lib/on-device.js and lib/never-stuck.js against stubbed
                            fetch + storage + Translator/LanguageDetector, with fake time (183 assertions)
+  templates-test.html      drives lib/templates.js against a stubbed chrome.storage.local (16 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/
