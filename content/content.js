@@ -1,5 +1,5 @@
 /**
- * Kalam content script.
+ * Kalima content script.
  *
  * Injected into every frame of every page (manifest: all_frames). It is passive:
  * it registers no key listeners on the page and reads nothing until the user
@@ -19,7 +19,7 @@
   /* ================================================================ state */
 
   /** The product name as the user sees it in every message this script shows. */
-  const PRODUCT = 'Kalam';
+  const PRODUCT = 'Kalima';
 
   const settings = {
     targetLanguage: 'Arabic',

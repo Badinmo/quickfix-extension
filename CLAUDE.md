@@ -1,4 +1,4 @@
-# Kalam (working name: QuickFix)
+# Kalima (working name: QuickFix)
 
 Chrome/Edge extension that fixes or translates selected text in place. See `README.md` for how
 it is put together, `CONTEXT.md` for vocabulary, and `docs/decisions.md` for the product

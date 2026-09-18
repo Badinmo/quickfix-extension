@@ -1,4 +1,4 @@
-# Kalam — inline grammar & translation
+# Kalima — inline grammar & translation
 
 A Manifest V3 extension for Chrome and Edge. Select text in any field on any page, press a
 shortcut, and the corrected or translated text replaces your selection in place. Invisible
@@ -52,7 +52,7 @@ by people your Google Workspace/organisation allows (or anyone, if your account 
    powershell -ExecutionPolicy Bypass -File tools\build-package.ps1
    ```
    This copies the extension into `dist\package` (rerun after any code change), strips the
-   dev-only `"key"` field, and zips it to `dist\kalam-webstore.zip`. Run
+   dev-only `"key"` field, and zips it to `dist\kalima-webstore.zip`. Run
    `tools\verify-package.ps1` afterwards if you want independent proof every file's CRC-32 in the
    zip matches what's on disk — it re-parses the archive from scratch rather than trusting the
    builder's own math.
@@ -65,7 +65,7 @@ by people your Google Workspace/organisation allows (or anyone, if your account 
 3. **Register as a developer** at the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole)
    (one-time $5 fee) if you haven't already.
 
-4. **Create a new item**, upload `dist\kalam-webstore.zip`, and fill in the Store Listing and
+4. **Create a new item**, upload `dist\kalima-webstore.zip`, and fill in the Store Listing and
    Privacy Practices tabs using `docs/store-listing.md` — every field, permission justification,
    and the single-purpose description are written out ready to paste in. Use the four
    1280x800 screenshots in `docs/images/listing-*.png` (toolbar, grammar fix, translate,
@@ -119,7 +119,7 @@ a click) rather than a page's initial render.
 |---|---|
 | `Alt+G` | Fix grammar / structure of the selection |
 | `Alt+T` | Translate the selection (Arabic by default) |
-| Right-click → Kalam | Same two actions — works when a shortcut is inconvenient |
+| Right-click → Kalima | Same two actions — works when a shortcut is inconvenient |
 | Floating toolbar | Appears next to a selection inside an editable field |
 
 `Ctrl+Z` undoes a replacement like any other edit — the extension writes through
@@ -238,7 +238,7 @@ test/
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/
   make-icons.ps1            regenerates icons/*.png
-  build-package.ps1         stages dist/package and builds dist/kalam-webstore.zip for Store submission
+  build-package.ps1         stages dist/package and builds dist/kalima-webstore.zip for Store submission
   verify-package.ps1        independently re-checks every file in that zip
 docs/
   guide.html                the beginner install/use walkthrough (also published as an Artifact)
@@ -310,7 +310,7 @@ own docs and the spec for this ticket) — the options page's consent text says 
 download of "typically 100–300 MB" rather than inventing a precise figure the browser cannot
 supply.
 
-**Removing a downloaded pack** is outside the extension entirely — Kalam has no API for it. The
+**Removing a downloaded pack** is outside the extension entirely — Kalima has no API for it. The
 note under the toggle currently names Chrome's `chrome://on-device-translation-internals` page,
 found via web search and a Chromium bug report rather than Chrome's own developer docs, so the
 note is explicit that it's undocumented and may move, and that Edge's equivalent may differ.
@@ -417,7 +417,7 @@ you invoke an action.
 |---|---|
 | Nothing happens, toolbar icon flashes a red `!` | No content script in that tab. Extension pages, the Web Store, PDFs and `view-source:` are off limits; on a normal page, reload it after loading/reloading the extension. |
 | Shortcut does nothing on one specific site | Something else has claimed `Alt+G`/`Alt+T`. Check `edge://extensions/shortcuts`, or use the right-click menu. |
-| "Select the text you want Kalam to work on first" in an email/ticket editor | Rich-text editors are contenteditable, which requires a real selection — by design (see above). |
+| "Select the text you want Kalima to work on first" in an email/ticket editor | Rich-text editors are contenteditable, which requires a real selection — by design (see above). |
 | Text is replaced but the app does not notice (Send stays greyed out) | Open `test/playground.html` and watch the event log to confirm `input` is firing, then check whether the app listens for something else. The write path is `replaceInInput` / `replaceInEditable` in `content/content.js`. |
 | Manifest fails to load on an older browser | `match_origin_as_fallback` in `manifest.json` needs Chromium 111+. Replace that line with `"match_about_blank": true`. |
 | "Gemini rejected the API key" | Key is wrong, or the Generative Language API is not enabled for that Google project. Regenerate at aistudio.google.com/apikey. |
@@ -425,10 +425,10 @@ you invoke an action.
 ## Data handling
 
 No middleman: your text goes straight from your browser to your own AI account. We never see
-it. Kalam has no server; the selection travels from the background service worker directly to
+it. Kalima has no server; the selection travels from the background service worker directly to
 the provider (today Gemini, under your own key — [ADR 0001](docs/adr/0001-no-server-bring-your-own-key.md),
 [ADR 0002](docs/adr/0002-gemini-is-the-only-provider.md)) and the reply comes straight back.
-The key lives in `chrome.storage.local`, never synced, never seen by Kalam.
+The key lives in `chrome.storage.local`, never synced, never seen by Kalima.
 
 The provider is still external to your organisation's systems, however narrowly the extension
 reads the page (§10 / §11.5) — worth a check against your trust's IG policy before using it on
@@ -442,7 +442,7 @@ it is an experimental bonus, never the headline claim, and grammar always still 
 
 From [`docs/decisions.md`](docs/decisions.md). Gemini is the only cloud provider
 ([ADR 0002](docs/adr/0002-gemini-is-the-only-provider.md)); the provider layer is shaped so a
-future "Kalam Cloud" could slot in behind `runAction(action, text, settings)` in `lib/ai.js`,
+future "Kalima Cloud" could slot in behind `runAction(action, text, settings)` in `lib/ai.js`,
 but nothing is built.
 
 - Compose / reply / draft actions

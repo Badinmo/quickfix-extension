@@ -1,7 +1,7 @@
-# Builds the Chrome Web Store upload package for Kalam: stages the runtime file
+# Builds the Chrome Web Store upload package for Kalima: stages the runtime file
 # set into dist\package with manifest.json's dev-only "key" field stripped (the
 # store assigns its own permanent ID on first upload and ignores that field
-# anyway), then writes it as a plain ZIP, dist\kalam-webstore.zip.
+# anyway), then writes it as a plain ZIP, dist\kalima-webstore.zip.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\build-package.ps1
 #
@@ -14,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
 $packageDir = Join-Path $root 'dist\package'
-$zipPath = Join-Path $root 'dist\kalam-webstore.zip'
+$zipPath = Join-Path $root 'dist\kalima-webstore.zip'
 
 # ----------------------------------------------------------------- staging
 

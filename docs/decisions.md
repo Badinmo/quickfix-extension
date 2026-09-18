@@ -1,4 +1,4 @@
-# Kalam — product decisions (17 Sep 2026)
+# Kalima — product decisions (17 Sep 2026)
 
 Output of a grilling session on two questions: should the extension support providers other than
 Gemini, and how does it become usable by a general Chrome Web Store audience given the
@@ -13,8 +13,12 @@ decisions each have an ADR in [adr/](./adr/).
   account. We never see it."* On-device is a bonus where the machine supports it — never the
   headline claim ([ADR 0001](./adr/0001-no-server-bring-your-own-key.md),
   [ADR 0003](./adr/0003-on-device-translate-is-experimental.md)).
-- **Name:** Kalam, pending a manual Chrome Web Store search. "Powered by Google Gemini" comes out
-  of the name and description ([ADR 0005](./adr/0005-rename-to-kalam-vendor-neutral.md)).
+- **Name:** Kalima — shipping name, after Kalam (the first replacement for the original QuickFix
+  working name) turned out to collide with an unrelated, existing Chrome Web Store extension (an
+  employee-monitoring tool) found during the pre-publish Store search ADR 0005 called for.
+  "Powered by Google Gemini" comes out of the name and description
+  ([ADR 0005](./adr/0005-rename-to-kalam-vendor-neutral.md),
+  [ADR 0006](./adr/0006-rename-to-kalima.md)).
 
 ## Users
 
@@ -27,8 +31,8 @@ decisions each have an ADR in [adr/](./adr/).
 
 - **Zero cost to the developer.** Bring-your-own Gemini key (free tier) + on-device where
   possible. No server, no accounts, no data held ([ADR 0001](./adr/0001-no-server-bring-your-own-key.md)).
-- **Revenue:** deferred. One architectural rule: the provider layer is shaped so "Kalam Cloud"
-  (Kalam's key, users subscribe) can slot in as just another provider later.
+- **Revenue:** deferred. One architectural rule: the provider layer is shaped so "Kalima Cloud"
+  (Kalima's key, users subscribe) can slot in as just another provider later.
 - Community tool first; product only if the community pulls it.
 
 ## Providers
@@ -83,3 +87,11 @@ decisions each have an ADR in [adr/](./adr/).
 `README.md` used to describe "Phase 3: a second provider (Azure OpenAI / OpenAI)" under *Not
 built yet* and carried the QuickFix name and "Powered by Google Gemini" throughout. Superseded by
 ADR 0002 and ADR 0005; the README now carries the parked list above and the "no middleman" line.
+
+## Known inconsistency (resolved by the second rename, ADR 0006)
+
+ADR 0005's own body still says "Kalam" throughout — it documents the QuickFix → Kalam decision as
+history and is deliberately left unedited, along with its filename
+(`docs/adr/0005-rename-to-kalam-vendor-neutral.md`). Everywhere else (this file, `CONTEXT.md`,
+`README.md`, ADR 0001, ADR 0002, the manifest, UI copy, docs and test-harness titles) now says
+Kalima, the current shipping name, per [ADR 0006](./adr/0006-rename-to-kalima.md).

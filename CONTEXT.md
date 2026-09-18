@@ -1,4 +1,4 @@
-# Kalam
+# Kalima
 
 A browser extension that fixes or translates the text you have selected, in place, in any text
 field — invisible until invoked. It has no server: text goes from the user's browser straight to
@@ -6,10 +6,11 @@ the AI provider under the user's own account.
 
 ## Product
 
-**Kalam**:
-The product and extension name (Arabic كلام, "words / speech"). Replaces the original working
-name once the rename ships.
-_Avoid_: QuickFix (a different, existing Store extension), the extension, the tool
+**Kalima**:
+The product and extension name (Arabic كلمة, "word"). Replaces Kalam, itself a rename of the
+original QuickFix working name — Kalam turned out to collide with an unrelated, existing Store
+extension (an employee-monitoring tool), so the name changed again before publishing.
+_Avoid_: QuickFix and Kalam (both different, existing Store extensions), the extension, the tool
 
 **Invisible until invoked**:
 The core positioning: the extension does nothing — no underlines, no scanning, no prompts —
@@ -18,7 +19,7 @@ _Avoid_: passive, always-on, assistant
 
 **No middleman**:
 The privacy property that text travels browser → provider under the user's own account, with no
-Kalam server in between. True for every user, cloud or on-device.
+Kalima server in between. True for every user, cloud or on-device.
 _Avoid_: private, secure, local (those mean different things; see On-device mode)
 
 ## Actions and text
@@ -85,7 +86,7 @@ _Avoid_: timeout handling, error handling
 
 **Provider**:
 The AI backend an action runs against. Today Gemini only; the provider layer is shaped so others
-(on-device, Kalam Cloud) can slot in behind the same seam.
+(on-device, Kalima Cloud) can slot in behind the same seam.
 _Avoid_: model, engine, backend, vendor, API
 
 **Model**:
@@ -94,11 +95,11 @@ _Avoid_: engine, version
 
 **Key**:
 The user's own API credential for their provider account. Stored in `chrome.storage.local`, never
-synced, never seen by Kalam.
+synced, never seen by Kalima.
 _Avoid_: token, licence, password, secret
 
 **Bring-your-own-key (BYOK)**:
-The arrangement where each user supplies their own key, one per person, so Kalam carries no cost
+The arrangement where each user supplies their own key, one per person, so Kalima carries no cost
 and holds no data.
 _Avoid_: user-provided key, personal key
 
@@ -119,8 +120,8 @@ the machine. Experimental, off by default, translate only. Unavailable on machin
 hardware floor.
 _Avoid_: local AI, offline mode, Nano, private mode
 
-**Kalam Cloud**:
-A hypothetical future provider where Kalam holds the key and users subscribe. Parked; exists only
+**Kalima Cloud**:
+A hypothetical future provider where Kalima holds the key and users subscribe. Parked; exists only
 as a constraint on the provider layer's shape.
 _Avoid_: hosted tier, backend, pro
 

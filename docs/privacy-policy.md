@@ -1,21 +1,21 @@
-# Kalam Privacy Policy
+# Kalima Privacy Policy
 
 *Last updated: 2026-09-18*
 
-Kalam is a browser extension for personal use that fixes grammar and translates text
+Kalima is a browser extension for personal use that fixes grammar and translates text
 inside web pages. This policy explains what it does and does not do with your data.
 
 **No middleman: your text goes straight from your browser to your own AI account. We never
 see it.**
 
-## What Kalam reads
+## What Kalima reads
 
-Kalam only reads text you have explicitly selected (or the single form field you are
+Kalima only reads text you have explicitly selected (or the single form field you are
 currently focused in, if you trigger it with nothing selected), and only at the exact
 moment you invoke it — by keyboard shortcut, the right-click menu, or the floating
 toolbar.
 
-Kalam never reads, scans, or stores anything else: not the rest of the page, not other
+Kalima never reads, scans, or stores anything else: not the rest of the page, not other
 open tabs, not browsing history, not content you have not selected. It has no background
 listeners that run without you explicitly triggering an action.
 
@@ -27,12 +27,12 @@ it can be corrected or translated. That request is made directly from the extens
 background service worker to Google's servers, under your own Google account. Google's
 handling of that data is governed by
 [Google's own privacy policy and Gemini API terms](https://ai.google.dev/gemini-api/terms) —
-Kalam has no control over Google's retention or use of that data beyond what those terms
+Kalima has no control over Google's retention or use of that data beyond what those terms
 describe.
 
-No other server, analytics service, or third party ever receives your text. Kalam has no
+No other server, analytics service, or third party ever receives your text. Kalima has no
 backend of its own, so there is nothing in between your browser and your AI account.
-Gemini is the only cloud provider Kalam supports today.
+Gemini is the only cloud provider Kalima supports today.
 
 ## On-device translate (optional, experimental)
 
@@ -46,7 +46,7 @@ Gemini. The listing describes this feature as available in Chrome; it happens to
 work in Microsoft Edge (version 148 and later), which ships its own implementation of
 the same browser API.
 
-## What Kalam stores
+## What Kalima stores
 
 Your Gemini API key and your settings (target language, tone, and similar preferences)
 are stored locally on your device only, using the browser's `chrome.storage.local` API.
@@ -62,7 +62,7 @@ This data:
 ## Data retention and deletion
 
 Removing the extension deletes all locally stored settings and your API key
-immediately, since they exist only in the browser's local extension storage. Kalam
+immediately, since they exist only in the browser's local extension storage. Kalima
 does not retain a copy anywhere else, because it has no server of its own.
 
 ## Changes to this policy

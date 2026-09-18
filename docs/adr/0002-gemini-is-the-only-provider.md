@@ -5,7 +5,7 @@ date: 2026-09-17
 
 # Gemini is the only cloud provider
 
-Kalam supports Gemini and no other cloud provider, despite the README's earlier "Phase 3" plan for
+Kalima supports Gemini and no other cloud provider, despite the README's earlier "Phase 3" plan for
 OpenAI / Azure OpenAI, and despite target users being more familiar with ChatGPT and Copilot.
 
 ## Why the familiar names don't help
@@ -24,5 +24,5 @@ OpenAI / Azure OpenAI, and despite target users being more familiar with ChatGPT
 ## Consequences
 
 - Add a `provider: 'gemini'` settings field now so a second provider needs no storage migration.
-- Revisit only when Kalam owns a backend and key (see ADR 0001); consumer OpenAI will never be the
+- Revisit only when Kalima owns a backend and key (see ADR 0001); consumer OpenAI will never be the
   answer for this audience.

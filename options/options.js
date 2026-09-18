@@ -159,7 +159,7 @@ async function refreshOnDeviceStatus() {
   setOnDeviceNote(status.reason || '', !status.supported);
 
   // A language change can land the toggle — already on, from a previous pair
-  // — on a new pair that needs a download Kalam has no consent for. Ask
+  // — on a new pair that needs a download Kalima has no consent for. Ask
   // again here, exactly like turning the toggle on would; never mid-action,
   // only from this page (ADR 0003 / #10).
   if (toggle.checked && status.availability === 'downloadable' && !pairConsented()) {
@@ -233,7 +233,7 @@ function setProgress(fraction) {
 }
 
 // Chrome reports download progress once it starts (a 0..1 fraction) but never
-// a size in bytes beforehand, so this is the most honest figure Kalam can
+// a size in bytes beforehand, so this is the most honest figure Kalima can
 // show — an approximate, hedged one, not a fabricated precise number.
 const APPROX_SIZE_NOTE = "Chrome doesn't report the exact size before downloading starts — on-device " +
   'language packs are typically in the range of 100–300 MB (a rough figure, not a guarantee).';
@@ -284,7 +284,7 @@ odContinue.addEventListener('click', async () => {
     $('onDeviceTranslate').checked = false;
     // Chrome's create() does accept an AbortSignal (per spec), so Cancel does
     // ask it to stop — but whether the underlying download itself is torn
-    // down rather than just abandoned by this page isn't something Kalam can
+    // down rather than just abandoned by this page isn't something Kalima can
     // verify, so the message is honest about the uncertainty either way.
     setLine(
       odResult,

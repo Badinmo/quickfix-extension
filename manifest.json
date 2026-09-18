@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Kalam — Inline Grammar & Translate",
+  "name": "Kalima — Inline Grammar & Translate",
   "version": "1.0.0",
   "description": "Fix or translate text in place. No middleman: your text goes straight from your browser to your own AI account. We never see it.",
   "minimum_chrome_version": "116",
@@ -45,7 +45,7 @@
   ],
 
   "action": {
-    "default_title": "Kalam",
+    "default_title": "Kalima",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

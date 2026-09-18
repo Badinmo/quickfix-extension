@@ -1,10 +1,10 @@
 # Chrome Web Store listing content
 
 Paste these straight into the Developer Dashboard when submitting
-`dist/kalam-webstore.zip`. Written for an **unlisted/private** item — visible only to
+`dist/kalima-webstore.zip`. Written for an **unlisted/private** item — visible only to
 people you share the link with, not searchable, not reviewed for a public audience.
 
-**Chrome Web Store only, for now.** Kalam is submitted to the Chrome Web Store; there is
+**Chrome Web Store only, for now.** Kalima is submitted to the Chrome Web Store; there is
 no Microsoft Edge Add-ons listing (parked — see `docs/decisions.md`). Edge users install
 the same Chrome Web Store item — see the Edge note in the description below.
 
@@ -14,7 +14,7 @@ the same Chrome Web Store item — see the Edge note in the description below.
 
 **Title** (fits Chrome's 45-character limit)
 ```
-Kalam - Grammar & Translate
+Kalima - Grammar & Translate
 ```
 
 **Summary** (132 characters max — shown in search/list views)
@@ -24,7 +24,7 @@ Fix or translate text in place. No middleman: your text goes straight from your 
 
 **Description**
 ```
-Kalam is invisible until invoked: no underlines, no scanning, no prompts, until you
+Kalima is invisible until invoked: no underlines, no scanning, no prompts, until you
 select some text and ask. Fix grammar and structure, or translate, right where you're
 typing - a support ticket, a webmail reply, a form field - without switching tabs or
 copying into a separate tool.
@@ -39,17 +39,17 @@ other edit. A right-click menu and a small floating toolbar are also available a
 alternatives to the keyboard shortcut.
 
 WHAT IT TOUCHES
-Kalam only ever reads the text you've explicitly selected (or the single field
+Kalima only ever reads the text you've explicitly selected (or the single field
 you're focused in), at the moment you trigger it. It never scans the rest of the
 page, other open tabs, or anything you haven't selected.
 
 WHERE YOUR TEXT GOES
 Selected text is sent to your own AI provider account using your own key, and
-nothing is sent anywhere unless you actively trigger an action. Kalam has no server
+nothing is sent anywhere unless you actively trigger an action. Kalima has no server
 of its own.
 
 ON-DEVICE TRANSLATE (EXPERIMENTAL)
-On machines that support it, Kalam can optionally translate using Chrome's built-in,
+On machines that support it, Kalima can optionally translate using Chrome's built-in,
 on-device Translator instead of the cloud - so that text never leaves your machine
 for that action. This is an experimental, opt-in bonus: off by default, translate
 only, and grayed out on machines that don't meet the hardware floor. Grammar always
@@ -92,7 +92,7 @@ docs/images/listing-onboarding.png    - the in-page onboarding panel (first-run,
 
 **Single purpose description**
 ```
-Kalam has a single purpose: when the user explicitly selects text in a web page
+Kalima has a single purpose: when the user explicitly selects text in a web page
 and triggers an action (keyboard shortcut, right-click menu, or floating toolbar),
 it fixes that text's grammar or translates it, then replaces the selection with the
 result. It performs no other function.

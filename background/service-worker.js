@@ -29,7 +29,7 @@ async function buildMenus() {
 
   chrome.contextMenus.create({
     id: MENU_ROOT,
-    title: 'Kalam',
+    title: 'Kalima',
     contexts: ['selection', 'editable']
   });
   chrome.contextMenus.create({
@@ -180,7 +180,7 @@ async function handleAi(msg) {
     if (err instanceof AiError) {
       return { ok: false, id, code: err.code, error: err.message };
     }
-    console.error('[Kalam]', err);
+    console.error('[Kalima]', err);
     return { ok: false, id, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
   }
 }
@@ -201,7 +201,7 @@ async function handleListModels(msg) {
     });
     return { ok: true, models, fetchedAt, source };
   } catch (err) {
-    console.error('[Kalam]', err);
+    console.error('[Kalima]', err);
     return { ok: false, error: 'Could not load the model list: ' + (err?.message || err) };
   }
 }
@@ -231,14 +231,14 @@ async function handleValidateKey(msg) {
     if (err instanceof AiError) {
       return { ok: false, code: err.code, error: err.message };
     }
-    console.error('[Kalam]', err);
+    console.error('[Kalima]', err);
     return { ok: false, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
   }
   if (msg.save === true) {
     try {
       await saveSettings({ apiKey });
     } catch (err) {
-      console.error('[Kalam]', err);
+      console.error('[Kalima]', err);
       return { ok: false, code: 'SAVE_FAILED', error: 'The key works but could not be saved: ' + (err?.message || err) };
     }
   }

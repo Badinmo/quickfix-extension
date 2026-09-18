@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Kalam provider test</title></head>
+<head><meta charset="utf-8"><title>Kalima provider test</title></head>
 <body>
 <!--
   Drives lib/ai.js (the provider seam) against a stubbed fetch and a stubbed
@@ -27,7 +27,7 @@
          background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; }
 </style>
 
-<h1>Kalam provider test</h1>
+<h1>Kalima provider test</h1>
 <pre id="out">running…</pre>
 
 <script>
@@ -1186,7 +1186,7 @@ async function main() {
   onDevice();
   downloadErr = null;
   try { await downloadOnDeviceLanguage({ sourceLanguage: 'English', targetLanguage: 'Klingon' }); } catch (e) { downloadErr = e; }
-  check('downloadOnDeviceLanguage with a language Kalam has no BCP-47 code for throws naming it',
+  check('downloadOnDeviceLanguage with a language Kalima has no BCP-47 code for throws naming it',
     /Klingon/.test(downloadErr?.message || ''), String(downloadErr));
 
   const failed = results.filter((x) => x.startsWith('FAIL')).length;
