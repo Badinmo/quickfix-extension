@@ -322,11 +322,11 @@ async function main() {
   check('body that never finishes → TIMEOUT at 20 s', r.error?.code === 'TIMEOUT',
     `got ${r.error?.code}: ${r.error?.message}`);
 
-  /** Script the responses, run one grammar action, and expect an AiError with `code`. */
-  async function expectError(name, responses, code, { text = 'some text', settings = SETTINGS, fetches } = {}) {
+  /** Script the responses, run one action (grammar by default), and expect an AiError with `code`. */
+  async function expectError(name, responses, code, { text = 'some text', settings = SETTINGS, fetches, action = 'grammar' } = {}) {
     reset();
     script(...responses);
-    const out = await run('grammar', text, settings);
+    const out = await run(action, text, settings);
     const err = out.error;
     const pass = err instanceof AiError && err.code === code &&
       (fetches === undefined || window.__fetches.length === fetches);
@@ -1218,6 +1218,114 @@ async function main() {
   try { await downloadOnDeviceLanguage({ sourceLanguage: 'English', targetLanguage: 'Klingon' }); } catch (e) { downloadErr = e; }
   check('downloadOnDeviceLanguage with a language Kalima has no BCP-47 code for throws naming it',
     /Klingon/.test(downloadErr?.message || ''), String(downloadErr));
+
+  // 29 — coach (ADR 0007): a well-formed structured-JSON reply round-trips
+  // as-is, requested with responseMimeType so Gemini itself is asked for
+  // JSON, and the four categories keep the order the prompt asked for.
+  const coachPayload = {
+    overall: { level: 'good', note: 'Reads clearly with only minor slips.' },
+    categories: [
+      { name: 'Grammar & accuracy', level: 'fair', note: 'One subject-verb mismatch near the start.', spans: [{ start: 0, end: 9 }] },
+      { name: 'Word choice', level: 'good', note: 'Words are precise and natural.' },
+      { name: 'Clarity & flow', level: 'strong', note: 'Ideas follow a clear, logical order.' },
+      { name: 'Tone & register', level: 'good', note: 'Matches a professional email.' }
+    ]
+  };
+  reset();
+  script(reply(JSON.stringify(coachPayload)));
+  r = await run('coach', 'We was hoping you could help.');
+  check('coach: a well-formed reply round-trips as JSON with all four categories, in order',
+    !!r.value && JSON.stringify(JSON.parse(r.value.text)) === JSON.stringify(coachPayload), JSON.stringify(r));
+  check('coach: the request asks Gemini for JSON via responseMimeType',
+    lastBody()?.generationConfig?.responseMimeType === 'application/json', JSON.stringify(lastBody()?.generationConfig));
+
+  // 30 — a reply that fails to parse as the required shape retries once with
+  // a stricter reminder; a second failure degrades to overall-only rather
+  // than surfacing as an error — a content-shape failure, not a network one.
+  reset();
+  script(
+    http(200, { candidates: [{ content: { parts: [{ text: 'not json at all' }] }, finishReason: 'STOP' }] }),
+    reply(JSON.stringify(coachPayload))
+  );
+  r = await run('coach', 'some text');
+  check('coach: malformed JSON retries once and the valid retry reply is used',
+    !!r.value && JSON.stringify(JSON.parse(r.value.text)) === JSON.stringify(coachPayload), JSON.stringify(r));
+  check('coach: exactly two requests were made for the retry', window.__fetches.length === 2, String(window.__fetches.length));
+  const retrySystem = window.__fetches[1]?.body?.systemInstruction?.parts?.[0]?.text || '';
+  check('coach: the retry\'s system instruction carries a stricter reminder',
+    /previous reply/i.test(retrySystem), retrySystem.slice(0, 120));
+
+  reset();
+  const oneCategory = { overall: { level: 'good', note: 'x' }, categories: [{ name: 'Grammar & accuracy', level: 'good', note: 'x' }] };
+  script(reply(JSON.stringify(oneCategory)), reply(JSON.stringify(coachPayload)));
+  r = await run('coach', 'some text');
+  check('coach: syntactically valid JSON with the wrong shape (not 4 categories) is treated as malformed and retried',
+    !!r.value && JSON.stringify(JSON.parse(r.value.text)) === JSON.stringify(coachPayload), JSON.stringify(r));
+
+  reset();
+  script(
+    http(200, { candidates: [{ content: { parts: [{ text: 'nope' }] }, finishReason: 'STOP' }] }),
+    http(200, { candidates: [{ content: { parts: [{ text: 'still not json' }] }, finishReason: 'STOP' }] })
+  );
+  r = await run('coach', 'some text');
+  check('coach: two malformed replies degrade to a result, never a TIMEOUT/SERVER-style error', !!r.value, JSON.stringify(r));
+  const degraded = r.value ? JSON.parse(r.value.text) : null;
+  check('coach: the degraded result has no per-category breakdown and no spans',
+    !!degraded && Array.isArray(degraded.categories) && degraded.categories.length === 0, JSON.stringify(degraded));
+  check('coach: the degraded result still carries an overall note',
+    typeof degraded?.overall?.note === 'string' && degraded.overall.note.length > 0, JSON.stringify(degraded));
+
+  // 31 — English-only for v1: a plain message, never a guessed breakdown.
+  reset();
+  script(reply(JSON.stringify({ nonEnglish: true })));
+  r = await run('coach', 'Ceci n\'est pas anglais.');
+  check('coach: a non-English selection throws NON_ENGLISH rather than a guessed breakdown',
+    r.error instanceof AiError && r.error.code === 'NON_ENGLISH', JSON.stringify(r));
+  check('coach: the NON_ENGLISH message says English-only, in plain language',
+    /english/i.test(r.error?.message || ''), r.error?.message);
+
+  // 32 — coach reuses the one provider seam: every HTTP/network/timeout code
+  // grammar/translate can throw maps exactly the same way for coach.
+  await expectError('coach: 400 mentioning the API key → BAD_KEY, no retry',
+    [http(400, { error: { message: 'API key not valid. Please pass a valid API key.' } })], 'BAD_KEY', { action: 'coach', fetches: 1 });
+  await expectError('coach: 401 → BAD_KEY', [http(401, {})], 'BAD_KEY', { action: 'coach', fetches: 1 });
+  await expectError('coach: 403 → BAD_KEY', [http(403, { error: { message: 'PERMISSION_DENIED' } })], 'BAD_KEY', { action: 'coach', fetches: 1 });
+  await expectError('coach: 400 for anything else → INVALID_ARGUMENT after every variant is tried',
+    Array(6).fill(0).map(() => http(400, { error: { message: 'Unknown name "thinkingLevel"' } })), 'INVALID_ARGUMENT', { action: 'coach', fetches: 6 });
+  await expectError('coach: 418 (unmapped) → HTTP_418', [http(418, {})], 'HTTP_418', { action: 'coach', fetches: 1 });
+  await expectError('coach: 404 → BAD_MODEL (after the one list refresh)',
+    [http(404, { error: { message: 'model not found' } }), http(500)], 'BAD_MODEL', { action: 'coach', fetches: 2 });
+  await expectError('coach: 429 → RATE_LIMIT', [http(429, { error: { message: 'quota' } })], 'RATE_LIMIT', { action: 'coach', fetches: 1 });
+  await expectError('coach: 500 → SERVER', [http(500)], 'SERVER', { action: 'coach', fetches: 1 });
+  await expectError('coach: fetch throws → NETWORK, no retry', [after(0, networkFailure())], 'NETWORK', { action: 'coach', fetches: 1 });
+  await expectError('coach: promptFeedback.blockReason → BLOCKED',
+    [http(200, { promptFeedback: { blockReason: 'SAFETY' }, candidates: [] })], 'BLOCKED', { action: 'coach' });
+  await expectError('coach: finishReason MAX_TOKENS with text → TRUNCATED',
+    [reply('{"cut', { finishReason: 'MAX_TOKENS' })], 'TRUNCATED', { action: 'coach' });
+  await expectError('coach: no candidates → EMPTY_RESPONSE', [http(200, { candidates: [] })], 'EMPTY_RESPONSE', { action: 'coach' });
+  await expectError('coach: no API key → NO_API_KEY, nothing fetched', [reply('x')], 'NO_API_KEY',
+    { action: 'coach', settings: { ...SETTINGS, apiKey: '' }, fetches: 0 });
+  await expectError('coach: empty text → EMPTY, nothing fetched', [reply('x')], 'EMPTY', { action: 'coach', text: '   \n', fetches: 0 });
+  await expectError('coach: text over MAX_CHARS → TOO_LONG, nothing fetched', [reply('x')], 'TOO_LONG',
+    { action: 'coach', text: 'a'.repeat(MAX_CHARS + 1), fetches: 0 });
+
+  reset();
+  script(never());
+  r = await run('coach', 'hello there');
+  check('coach: a hung request still hits the 20 s hard stop → TIMEOUT', r.error?.code === 'TIMEOUT', JSON.stringify(r));
+  check('coach: a failed action clears its deadline timer', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
+  // 33 — never named or scored like an exam anywhere the user (or the model,
+  // via the prompt) can see it.
+  const promptSrcXhr = new XMLHttpRequest();
+  promptSrcXhr.open('GET', '../lib/prompts.js', false);
+  promptSrcXhr.send(null);
+  const aiSrcXhr = new XMLHttpRequest();
+  aiSrcXhr.open('GET', '../lib/ai.js', false);
+  aiSrcXhr.send(null);
+  const coachSrc = promptSrcXhr.responseText + '\n' + aiSrcXhr.responseText;
+  check('coach code path never mentions IELTS', !/ielts/i.test(coachSrc));
+  check('coach code path never mentions a "band"', !/band/i.test(coachSrc));
 
   const failed = results.filter((x) => x.startsWith('FAIL')).length;
   document.getElementById('out').textContent =

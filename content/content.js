@@ -296,6 +296,44 @@
     }
   }
 
+  /**
+   * Coach never writes, so it never goes through replaceInInput/
+   * replaceInEditable — but it must refuse just as they would when the
+   * field or selection has changed since it was captured. Mirrors their
+   * comparisons rather than sharing code with them: those two also carry
+   * the write itself, and re-shaping them around a check-only caller risked
+   * changing the order they focus and re-select in ahead of an actual write.
+   */
+  function assertCoachFresh(target) {
+    if (target.kind === 'input') {
+      if (!target.el.isConnected) throw new QfError('That field has gone from the page — nothing was replaced.');
+      if (target.el.value.slice(target.start, target.end) !== target.text) {
+        throw new QfError(`The field changed while ${PRODUCT} was working — nothing was replaced.`);
+      }
+      return;
+    }
+    if (target.kind === 'editable') {
+      if (!target.el.isConnected) throw new QfError('That editor has gone from the page — nothing was replaced.');
+      const sel = selectionFor(target.el);
+      try {
+        sel.removeAllRanges();
+        sel.addRange(target.range);
+      } catch {
+        throw new QfError('Lost the selection — try again.');
+      }
+      let current = '';
+      try {
+        current = sel.toString();
+      } catch {
+        current = '';
+      }
+      if (current !== target.text) {
+        throw new QfError(`The text changed while ${PRODUCT} was working — nothing was replaced.`);
+      }
+    }
+    // read-only: nothing on the page to go stale
+  }
+
   /* ================================================================== run */
 
   // Never-stuck rules (ADR 0004): at 5 s the indicator offers Cancel; at 20 s
@@ -321,7 +359,8 @@
 
   const LABELS = {
     grammar: { working: 'Fixing…', done: 'Fixed' },
-    translate: { working: 'Translating…', done: 'Translated' }
+    translate: { working: 'Translating…', done: 'Translated' },
+    coach: { working: 'Coaching…' } // never written to a field, so there is no "done" flash
   };
 
   function run(action) {
@@ -373,21 +412,41 @@
     if (!res.ok) return fail(req, res.error || 'Something went wrong.', res.code);
 
     try {
-      // Re-attach the exact whitespace the user had selected, so we do not eat
-      // the leading space or the trailing newline of their selection.
-      let out = lead + res.text + trail;
-      if (target.singleLine) out = out.replace(/\s*\n+\s*/g, ' ');
+      if (action === 'coach') {
+        assertCoachFresh(target);
+        UI.coachPanel({
+          rect: anchorRect(target),
+          text: core, // the exact text sent to Gemini — spans are offsets into this, not target.text
+          payload: parseCoachResult(res.text),
+          onFix: () => { UI.hideCoachPanel(); execute('grammar', target); },
+          onDismiss: () => UI.hideCoachPanel()
+        });
+      } else {
+        // Re-attach the exact whitespace the user had selected, so we do not eat
+        // the leading space or the trailing newline of their selection.
+        let out = lead + res.text + trail;
+        if (target.singleLine) out = out.replace(/\s*\n+\s*/g, ' ');
 
-      if (target.kind === 'input') replaceInInput(target, out);
-      else if (target.kind === 'editable') replaceInEditable(target, out);
-      else UI.result(anchorRect(target), out); // not editable — offer it to copy
+        if (target.kind === 'input') replaceInInput(target, out);
+        else if (target.kind === 'editable') replaceInEditable(target, out);
+        else UI.result(anchorRect(target), out); // not editable — offer it to copy
+      }
     } catch (err) {
       return fail(req, err instanceof QfError ? err.message : `${PRODUCT} failed: ${err?.message || err}`);
     }
 
     settle(req);
-    if (target.kind !== 'readonly') {
+    if (action !== 'coach' && target.kind !== 'readonly') {
       UI.flash(labels.done + (res.via === 'on-device' ? ' · on-device' : ''));
+    }
+  }
+
+  /** lib/ai.js's coach route always resolves to valid JSON (or its own degraded shape), but parse defensively anyway. */
+  function parseCoachResult(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { overall: { level: 'fair', note: `${PRODUCT} could not read its own response. Try again.` }, categories: [] };
     }
   }
 
@@ -571,10 +630,12 @@
     let panelEl = null;
     let onboardEl = null;
     let onboardClose = null;
+    let coachEl = null;
 
-    // Fix and Translate's accent, shared by the CSS below and the toolbar's
-    // inline icon strokes so the two never drift apart.
-    const SAGE = '#8FB89B';
+    // Per-action accents, shared by the CSS below and the toolbar's inline
+    // icon strokes so a button's ring and its icon never drift apart.
+    const SAGE = '#8FB89B'; // Fix, Translate
+    const LAVENDER = '#A3A8D6'; // Coach
 
     const CSS = `
       :host { all: initial; }
@@ -601,7 +662,7 @@
       .bar button { all: unset; cursor: pointer; box-sizing: border-box;
                     width: 64px; height: 64px; border-radius: 999px;
                     display: flex; flex-direction: column; align-items: center; justify-content: center;
-                    gap: 2px; background: #262A31; border: 1.5px solid ${SAGE};
+                    gap: 2px; background: #262A31; border: 1.5px solid var(--accent, ${SAGE});
                     color: #ECEAE5; font: inherit; text-align: center; }
       .bar button:hover { background: #2E333B; }
       .bar button svg { flex: none; }
@@ -646,12 +707,28 @@
                                 font-weight: 500; padding: 5px 10px; border-radius: 6px;
                                 background: #4f46e5; color: #fff; white-space: nowrap; }
 
+      .coach-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                      letter-spacing: .05em; color: #6b7280; margin-bottom: 8px; }
+      .coach .excerpt { font-size: 13px; line-height: 1.6; margin: 0 0 12px;
+                         max-height: 30vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .coach mark { background: rgba(143,184,155,.35); color: inherit; border-radius: 3px; padding: 0 1px; }
+      .coach .overall { display: flex; align-items: flex-start; gap: 8px; font-weight: 700; margin-bottom: 10px; }
+      .coach .cats { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+      .coach .cat-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12.5px; }
+      .coach .cat-note { font-size: 12.5px; opacity: .85; margin: 2px 0 0 14px; }
+      .coach .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; display: inline-block; margin-top: 2px; }
+      .coach .acts { display: flex; gap: 6px; margin-top: 14px; }
+      .coach .acts button { all: unset; cursor: pointer; font: inherit; font-size: 12px;
+                             padding: 5px 10px; border-radius: 6px; }
+      .coach .acts .fix { background: #4f46e5; color: #fff; }
+      .coach .acts .dismiss { color: inherit; text-decoration: underline; padding: 5px 2px; }
+
       @media (prefers-color-scheme: dark) {
         .card { background: #1f2937; color: #f3f4f6; border-color: #374151; }
         .card.error { background: #3f1d1d; color: #fecaca; border-color: #7f1d1d; }
         .card.warn  { background: #422006; color: #fde68a; border-color: #78350f; }
         .card.ok    { background: #052e16; color: #bbf7d0; border-color: #14532d; }
-        .panel .head, .onboard .head, .onboard .note { color: #9ca3af; }
+        .panel .head, .onboard .head, .onboard .note, .coach-title { color: #9ca3af; }
         .onboard input { background: #111827; color: #f3f4f6; border-color: #4b5563; }
         .onboard li img { border-color: #4b5563; }
         .onboard .status.busy { color: #d1d5db; }
@@ -841,6 +918,104 @@
       panelEl = null;
     }
 
+    const LEVEL_COLORS = { weak: '#C97B6B', fair: '#D6A94A', good: '#8FB89B', strong: '#4E8A63' };
+
+    function levelDot(level) {
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = LEVEL_COLORS[level] || LEVEL_COLORS.fair;
+      dot.title = level;
+      return dot;
+    }
+
+    /** Sorted, overlap-merged, in-bounds spans — offsets are the model's own claim, never validated upstream for overlap. */
+    function mergeSpans(spans, maxLen) {
+      const clean = spans
+        .map(({ start, end }) => ({ start: Math.max(0, start | 0), end: Math.min(maxLen, end | 0) }))
+        .filter((s) => s.end > s.start)
+        .sort((a, b) => a.start - b.start);
+      const merged = [];
+      for (const s of clean) {
+        const last = merged[merged.length - 1];
+        if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+        else merged.push({ ...s });
+      }
+      return merged;
+    }
+
+    /** The captured text reproduced with any category spans it can point to marked — never the live page, only this copy in the panel. */
+    function highlightedText(text, spans) {
+      const frag = document.createDocumentFragment();
+      let cursor = 0;
+      for (const { start, end } of mergeSpans(spans, text.length)) {
+        if (start > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, start)));
+        const mark = document.createElement('mark');
+        mark.textContent = text.slice(start, end);
+        frag.appendChild(mark);
+        cursor = end;
+      }
+      if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)));
+      return frag;
+    }
+
+    /**
+     * The Coach panel (ADR 0007): the selection reproduced with any spans a
+     * category points to marked, an overall strength signal and note, each
+     * of the four categories with its own signal and note, then Fix these
+     * for me (hands off to Fix on the same captured target) and Got it
+     * (dismiss, nothing changed). Anchored like the bubble — below the
+     * selection, or above when there is no room — never over it.
+     */
+    function coachPanel({ rect, text, payload, onFix, onDismiss }) {
+      hideCoachPanel();
+      const r = ensure();
+      coachEl = document.createElement('div');
+      coachEl.className = 'card coach';
+      coachEl.innerHTML =
+        '<div class="coach-title"></div>' +
+        '<div class="excerpt"></div>' +
+        '<div class="overall"></div>' +
+        '<div class="cats"></div>' +
+        '<div class="acts"><button class="fix">Fix these for me</button><button class="dismiss">Got it</button></div>';
+      coachEl.querySelector('.coach-title').textContent = `${PRODUCT} — Coach`;
+
+      const allSpans = (payload.categories || []).flatMap((c) => c.spans || []);
+      coachEl.querySelector('.excerpt').appendChild(highlightedText(text, allSpans));
+
+      const overall = payload.overall || { level: 'fair', note: '' };
+      const overallEl = coachEl.querySelector('.overall');
+      overallEl.appendChild(levelDot(overall.level));
+      const overallNote = document.createElement('span');
+      overallNote.textContent = overall.note;
+      overallEl.appendChild(overallNote);
+
+      const catsEl = coachEl.querySelector('.cats');
+      for (const cat of payload.categories || []) {
+        const row = document.createElement('div');
+        const nameRow = document.createElement('div');
+        nameRow.className = 'cat-name';
+        nameRow.appendChild(levelDot(cat.level));
+        const name = document.createElement('span');
+        name.textContent = cat.name;
+        nameRow.appendChild(name);
+        const note = document.createElement('div');
+        note.className = 'cat-note';
+        note.textContent = cat.note;
+        row.append(nameRow, note);
+        catsEl.appendChild(row);
+      }
+
+      coachEl.querySelector('.fix').addEventListener('click', onFix);
+      coachEl.querySelector('.dismiss').addEventListener('click', onDismiss);
+      r.layer.appendChild(coachEl);
+      place(coachEl, rect, 8);
+    }
+
+    function hideCoachPanel() {
+      coachEl?.remove();
+      coachEl = null;
+    }
+
     /**
      * The onboarding panel: the why line, the numbered steps (each with a
      * screenshot slot that shows only once its image has loaded), Get your
@@ -942,10 +1117,11 @@
     }
 
     /** A single circular toolbar button: an icon plus a label beneath it, always visible (never icon-only). */
-    function toolbarButton({ label, title, icon }) {
+    function toolbarButton({ label, title, icon, accent = SAGE }) {
       const btn = document.createElement('button');
       btn.title = title;
-      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="${SAGE}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${icon}</svg><span></span>`;
+      btn.style.setProperty('--accent', accent);
+      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="${accent}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${icon}</svg><span></span>`;
       btn.querySelector('span').textContent = label;
       return btn;
     }
@@ -966,13 +1142,20 @@
         title: `Translate to ${settings.targetLanguage} (Alt+T)`,
         icon: '<path d="M3 7h9M9 4l3 3-3 3"/><path d="M17 13H8m4 3l-3-3 3-3"/>'
       });
+      const coach = toolbarButton({
+        label: 'Coach',
+        title: 'Coach — a quick writing check-up',
+        icon: '<path d="M3.5 5.5h13a1 1 0 011 1v6a1 1 0 01-1 1H8l-3.5 3v-3H3.5a1 1 0 01-1-1v-6a1 1 0 011-1z"/><path d="M6.5 8.5h7M6.5 11h4.5"/>',
+        accent: LAVENDER
+      });
 
       // Do not let the click steal the selection out from under us.
       barEl.addEventListener('mousedown', (e) => e.preventDefault());
       fix.addEventListener('click', () => run('grammar'));
       tr.addEventListener('click', () => run('translate'));
+      coach.addEventListener('click', () => run('coach'));
 
-      barEl.append(fix, tr);
+      barEl.append(fix, tr, coach);
       r.layer.appendChild(barEl);
       place(barEl, rect, 6);
     }
@@ -985,7 +1168,8 @@
     return {
       indicator, indicatorWithCancel, hideIndicator,
       bubble, hideBubble, flash, result, hidePanel, showToolbar, hideToolbar,
-      onboarding, onboardingStatus, hideOnboarding
+      onboarding, onboardingStatus, hideOnboarding,
+      coachPanel, hideCoachPanel
     };
   })();
 
@@ -1035,7 +1219,7 @@
   document.addEventListener('scroll', () => { UI.hideToolbar(); UI.hideBubble(); }, true);
   window.addEventListener('blur', () => UI.hideToolbar());
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); UI.hideOnboarding(); }
+    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); UI.hideOnboarding(); UI.hideCoachPanel(); }
   }, true);
 
   /* ============================================================= messaging */

@@ -25,7 +25,7 @@ _Avoid_: private, secure, local (those mean different things; see On-device mode
 ## Actions and text
 
 **Action**:
-One of the operations a user can run on a selection. Today: grammar and translate.
+One of the operations a user can run on a selection. Today: grammar, translate and Coach.
 _Avoid_: command, feature, mode, tool
 
 **Selection**:
@@ -36,6 +36,16 @@ _Avoid_: input, content, page text
 **Replacement**:
 The text written back in place of the selection.
 _Avoid_: result, output, response, answer
+
+**Coach**:
+The action that assesses a selection's writing quality instead of rewriting it: an overall
+strength signal plus a note, and the same for each of four fixed dimensions, in this order —
+grammar & accuracy, word choice, clarity & flow, tone & register. Shown in a panel anchored below
+the selection (never over it), with Fix these for me to hand off to Fix on the same selection, or
+Got it to dismiss with nothing changed. English-only for v1; structured after IELTS's
+writing-assessment categories but never named or scored like an exam anywhere a user can see
+([ADR 0007](docs/adr/0007-coach-generic-writing-advice-english-only.md)).
+_Avoid_: feedback, review, grade, score, IELTS, band
 
 **Whole-field fallback**:
 With nothing selected in an `<input>` or `<textarea>`, an action operates on the whole field.

@@ -133,19 +133,24 @@ If a page steals `Alt+G`/`Alt+T`, rebind them at `edge://extensions/shortcuts` o
 Five harnesses in `test/`, in increasing order of realism.
 
 **`smoke-test.html` — run this after touching `content.js`.** It loads the content script into a
-normal page against a stubbed `chrome.*` API, then drives it through 88 assertions: whole-field
+normal page against a stubbed `chrome.*` API, then drives it through 106 assertions: whole-field
 rewrite, partial selection, newline collapsing in single-line inputs, whitespace preservation,
 contenteditable replacement with a quoted thread that must stay untouched, refusing to act on a
 contenteditable with no selection, aborting when the field changes mid-request, the floating
-toolbar, read-only selections, the never-stuck rules — Cancel at 5 s, the 20 s hard stop,
-a bubble with Retry (and Open settings for key/model codes) for every failure code, bubble
-dismissal, the indicator setting, the on-device label and stale-reply dropping — and the
-onboarding panel: a `NO_API_KEY` reply opens it (no bubble, busy clear), its copy and buttons,
-screenshot slots that show a loaded image and drop a missing one, the paste box (debounce,
-trimmed key, `save: true`), the checking → working + Try again / failed states, Try again
-re-sending the pending action, late-reply dropping, Cancel at 5 s and the 20 s stop inside the
-panel, Escape / Close / a new action closing it, and the bubble fallback when the worker cannot
-be reached. Time is faked the same way as in the provider harness, so the 5 s and 20 s cases
+toolbar (now a circular Fix/Translate/Coach cluster), read-only selections, the never-stuck
+rules — Cancel at 5 s, the 20 s hard stop, a bubble with Retry (and Open settings for key/model
+codes) for every failure code, bubble dismissal, the indicator setting, the on-device label and
+stale-reply dropping — the onboarding panel: a `NO_API_KEY` reply opens it (no bubble, busy
+clear), its copy and buttons, screenshot slots that show a loaded image and drop a missing one,
+the paste box (debounce, trimmed key, `save: true`), the checking → working + Try again / failed
+states, Try again re-sending the pending action, late-reply dropping, Cancel at 5 s and the 20 s
+stop inside the panel, Escape / Close / a new action closing it, and the bubble fallback when the
+worker cannot be reached — and Coach (ADR 0007): the panel shows all four categories in order
+with a strength signal and note each, marks a spot a note points to in the reproduced text,
+"Fix these for me" hands off to Fix on the same captured target, "Got it" dismisses untouched,
+a non-English selection ends in the same plain bubble any other failure code would, and Coach
+follows the exact same no-key/read-only/staleness/Escape handling as Fix and Translate, with no
+special-casing. Time is faked the same way as in the provider harness, so the 5 s and 20 s cases
 run in milliseconds. No API key or network needed. Open it in a browser, or headless:
 
 ```powershell
@@ -182,9 +187,15 @@ the download-consent helpers (`pairKey`/`hasConsent`/`addConsent`) and `download
 — forwarding `downloadprogress` fractions in order, resolving and destroying the translator when
 nothing needed downloading, rejecting with a named `AbortError` when cancelled mid-download, and
 a plain error naming the browser or the language when either is missing (#10) — and the BCP-47
-table covering every `LANGUAGES` entry; and the never-stuck helper the options page wraps the
-Test button in (Still working at 5 s, Cancel, hard stop at 20 s, late replies dropped). 183
-assertions. Time is faked, so the 20 s hard stop is exercised in milliseconds. Same headless
+table covering every `LANGUAGES` entry; the never-stuck helper the options page wraps the
+Test button in (Still working at 5 s, Cancel, hard stop at 20 s, late replies dropped); and Coach
+(ADR 0007) — a well-formed structured-JSON reply round-trips with all four categories in order,
+requested via `responseMimeType: 'application/json'`; a reply that fails to parse (malformed
+JSON, or valid JSON in the wrong shape) retries once with a stricter reminder and degrades to an
+overall-only result after a second failure, never as a `TIMEOUT`/`SERVER`-style error; a
+`{"nonEnglish": true}` reply throws `NON_ENGLISH` with a plain message; and every HTTP/network/
+timeout error code the grammar/translate cases exercise is re-asserted for `coach` on the same
+seam. 213 assertions. Time is faked, so the 20 s hard stop is exercised in milliseconds. Same headless
 command as above with `provider-test.html` in place of `smoke-test.html` (and
 `--virtual-time-budget=10000` is plenty); the title reads `ALL PASS` or `FAILED n` the same way.
 
@@ -229,7 +240,7 @@ content/
   content.js               capture selection → send → replace inline; toolbar & indicator UI
 lib/
   config.js                settings schema, model/language/tone lists, BCP-47 language codes, storage helpers
-  prompts.js               system instructions for both actions
+  prompts.js               system instructions for every action, including Coach's structured-JSON prompt
   ai.js                    runAction's route decision, Gemini client, validate key, live model list, error mapping
   on-device.js             on-device translate: feature detection, auto-swap, source detection (ADR 0003)
   on-device-offscreen.js   the service worker's half of the offscreen bridge (Chrome only — see below)
@@ -242,9 +253,9 @@ images/                    optional onboarding-N.png screenshots, one per step (
 options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
-  smoke-test.html          drives content.js against a stubbed chrome API, with fake time (88 assertions)
+  smoke-test.html          drives content.js against a stubbed chrome API, with fake time (106 assertions)
   provider-test.html       drives lib/ai.js, lib/on-device.js and lib/never-stuck.js against stubbed
-                           fetch + storage + Translator/LanguageDetector, with fake time (183 assertions)
+                           fetch + storage + Translator/LanguageDetector, with fake time (213 assertions)
   templates-test.html      drives lib/templates.js against a stubbed chrome.storage.local (16 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log

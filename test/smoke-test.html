@@ -749,6 +749,126 @@ async function main() {
     `shadow = ${JSON.stringify(shadowText())}, value = ${JSON.stringify(ta.value)}`);
   await wait(2000);
 
+  /* -------------------------------------------------------------- coach */
+
+  const coachPayload = {
+    overall: { level: 'good', note: 'Reads clearly, with one small slip.' },
+    categories: [
+      { name: 'Grammar & accuracy', level: 'fair', note: 'One small slip near the start.', spans: [{ start: 0, end: 6 }] },
+      { name: 'Word choice', level: 'good', note: 'Natural word choices throughout.' },
+      { name: 'Clarity & flow', level: 'strong', note: 'Easy to follow from start to end.' },
+      { name: 'Tone & register', level: 'good', note: 'Matches a friendly, everyday email.' }
+    ]
+  };
+  const coachPanelEl = () => [...(shadow()?.querySelectorAll('.card') || [])].find((c) => c.classList.contains('coach')) || null;
+
+  // 31 — the toolbar carries a third, Coach circle alongside Fix and Translate.
+  getSelection().removeAllRanges();
+  ta.value = 'toolbar check text';
+  ta.focus();
+  ta.setSelectionRange(0, 5);
+  ta.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+  await wait(400);
+  const barWithCoach = shadow()?.querySelector('.bar');
+  check('toolbar offers Coach alongside Fix and Translate',
+    !!barWithCoach && /Coach/.test(barWithCoach.textContent), `toolbar = ${JSON.stringify(barWithCoach?.textContent)}`);
+
+  // 32 — Coach shows all four categories in order, each with a strength
+  // signal and a note, and marks a spot a note points to in the text —
+  // and, unlike Fix/Translate, never writes anything to the field.
+  window.__reply = { ok: true, text: JSON.stringify(coachPayload) };
+  startOnTextarea('coach', 'Please see attached the report you asked for.');
+  await wait(200);
+  const coachPanel1 = coachPanelEl();
+  check('coach: the panel opens with the breakdown', !!coachPanel1, shadowText());
+  check('coach: shows all four categories, in order',
+    coachPanel1?.querySelectorAll('.cat-name').length === 4, coachPanel1?.textContent);
+  check('coach: each category has a strength signal and a note',
+    !!coachPanel1 && [...coachPanel1.querySelectorAll('.cats > div')].every((row) => row.querySelector('.dot') && row.querySelector('.cat-note').textContent.length > 0));
+  check('coach: a spot a note is about is marked in the reproduced text',
+    coachPanel1?.querySelector('.excerpt mark')?.textContent === 'Please', coachPanel1?.querySelector('.excerpt')?.innerHTML);
+  check('coach: nothing was written to the field',
+    ta.value === 'Please see attached the report you asked for.', ta.value);
+
+  // 33 — "Fix these for me" hands off to Fix on the very target Coach captured.
+  window.__reply = { ok: true, text: 'Please see the attached report you requested.' };
+  buttonNamed('Fix these for me')?.click();
+  await wait(200);
+  check('coach: "Fix these for me" runs Fix on the same captured target',
+    ta.value === 'Please see the attached report you requested.', ta.value);
+  check('coach: the panel is gone once Fix takes over', !coachPanelEl());
+
+  // 34 — "Got it" dismisses the panel; the field is untouched.
+  ta.value = 'Some more text to coach on for a moment.';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  window.__reply = { ok: true, text: JSON.stringify(coachPayload) };
+  window.__lastSent = null;
+  invoke('coach');
+  await wait(200);
+  buttonNamed('Got it')?.click();
+  check('coach: "Got it" dismisses the panel with the field untouched',
+    !coachPanelEl() && ta.value === 'Some more text to coach on for a moment.', ta.value);
+
+  // 35 — no key → the same onboarding panel Fix/Translate open, no special-casing.
+  window.__reply = { ok: false, code: 'NO_API_KEY', error: 'no key set' };
+  startOnTextarea('coach', 'coach needs a key');
+  await wait(50);
+  check('coach: NO_API_KEY opens the onboarding panel, same as grammar/translate',
+    !!onboardingPanel() && !shadow()?.querySelector('.card.error'), shadowText());
+  escape();
+
+  // 36 — a read-only selection shows the panel without attempting to write,
+  // same as Fix/Translate's own read-only handling.
+  getSelection().removeAllRanges();
+  const coachRo = document.createElement('p');
+  coachRo.textContent = 'more plain page text for coach to look at';
+  document.getElementById('fixtures').appendChild(coachRo);
+  selectIn(coachRo.firstChild, 0, coachRo.firstChild.length);
+  window.__reply = { ok: true, text: JSON.stringify(coachPayload) };
+  invoke('coach');
+  await wait(200);
+  check('coach: a read-only selection shows the panel without writing to the page',
+    coachRo.textContent === 'more plain page text for coach to look at' && !!coachPanelEl(),
+    `text = ${JSON.stringify(coachRo.textContent)}, panel = ${!!coachPanelEl()}`);
+  buttonNamed('Got it')?.click(); // clean up before the next case
+
+  // 37 — a stale target (the field changed while Coach was working) is
+  // refused with the same bubble wording Fix/Translate use, not a special case.
+  ta.value = 'stale check text for coach';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  window.__reply = { ok: true, text: JSON.stringify(coachPayload) };
+  window.__replyDelay = 50;
+  window.__lastSent = null;
+  invoke('coach');
+  ta.value = 'the field changed before the reply arrived';
+  await wait(200);
+  check('coach: a stale target is refused with the same staleness bubble Fix/Translate use',
+    !coachPanelEl() && /changed while/i.test(shadowText()), shadowText());
+  window.__replyDelay = 0;
+
+  // 38 — never named or scored like an exam anywhere the user can see it.
+  check('the content script never mentions IELTS', !/ielts/i.test(src));
+  check('the content script never mentions a "band"', !/band/i.test(src));
+
+  // 39 — non-English end to end: the same bubble path as any other failure
+  // code, no special UI, just a plain English-only message.
+  window.__reply = { ok: false, code: 'NON_ENGLISH', error: 'Coach works in English only for now.' };
+  startOnTextarea('coach', 'Ceci n\'est pas anglais.');
+  await wait(50);
+  check('coach: a non-English selection shows a plain English-only bubble, not a guessed breakdown',
+    !coachPanelEl() && /english only/i.test(shadowText()), shadowText());
+  check('coach: the non-English bubble offers Retry, like any other failure', !!buttonNamed('Retry'), shadowText());
+
+  // 40 — Escape closes the Coach panel, same as the bubble/panel/onboarding.
+  window.__reply = { ok: true, text: JSON.stringify(coachPayload) };
+  startOnTextarea('coach', 'text for the escape check');
+  await wait(200);
+  check('coach: the panel is open before Escape', !!coachPanelEl());
+  escape();
+  check('coach: Escape closes the panel', !coachPanelEl(), shadowText());
+
   const failed = results.filter((r) => r.startsWith('FAIL')).length;
   document.getElementById('out').textContent =
     results.join('\n') + `\n\n${results.length - failed}/${results.length} passed` +
