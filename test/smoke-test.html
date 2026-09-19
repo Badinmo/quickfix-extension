@@ -106,6 +106,8 @@ const DEFAULT_COPY = {
 window.__copy = DEFAULT_COPY;
 window.__validateReply = { ok: true };
 window.__validateDelay = 0;
+// What the worker answers QF_SAVE_TEMPLATE with — read at send time, like the others.
+window.__saveTemplateReply = { ok: true };
 
 window.chrome = {
   runtime: {
@@ -121,6 +123,9 @@ window.chrome = {
         if (msg.type === 'QF_VALIDATE_KEY') {
           const reply = window.__validateReply;
           return setTimeout(() => resolve(reply), window.__validateDelay);
+        }
+        if (msg.type === 'QF_SAVE_TEMPLATE') {
+          return resolve(window.__saveTemplateReply);
         }
         if (msg.type !== 'QF_AI') return resolve({ ok: true });
         const reply = window.__reply === null ? null : { id: msg.id, ...window.__reply };
@@ -868,6 +873,139 @@ async function main() {
   check('coach: the panel is open before Escape', !!coachPanelEl());
   escape();
   check('coach: Escape closes the panel', !coachPanelEl(), shadowText());
+
+  /* ----------------------------------------------------------- template */
+
+  const tplText = 'Dear Amy, thank you for the update on 12 March.';
+  const tplAt = (needle, label) => {
+    const start = tplText.indexOf(needle);
+    return { start, end: start + needle.length, label };
+  };
+  const tplFields = [tplAt('Amy', 'Name'), tplAt('12 March', 'Date')];
+  const tplPanelEl = () => [...(shadow()?.querySelectorAll('.card') || [])].find((c) => c.classList.contains('template')) || null;
+  const tokByText = (t) => [...(tplPanelEl()?.querySelectorAll('.tok') || [])].find((el) => el.textContent === t) || null;
+
+  // 41 — the toolbar carries a fourth, Template circle.
+  getSelection().removeAllRanges();
+  ta.value = 'toolbar check text 2';
+  ta.focus();
+  ta.setSelectionRange(0, 5);
+  ta.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+  await wait(400);
+  const barWithTemplate = shadow()?.querySelector('.bar');
+  check('toolbar offers Template alongside Fix, Translate and Coach',
+    !!barWithTemplate && /Template/.test(barWithTemplate.textContent), `toolbar = ${JSON.stringify(barWithTemplate?.textContent)}`);
+
+  // 42 — Template shows a preview with the suggested fields pre-toggled as
+  // chips, and — unlike Fix/Translate — never writes anything to the field.
+  window.__reply = { ok: true, text: tplText, fields: tplFields };
+  startOnTextarea('template', tplText);
+  await wait(200);
+  check('template: the panel opens with a preview', !!tplPanelEl(), shadowText());
+  check('template: nothing was written to the field', ta.value === tplText, ta.value);
+  const activeToks = () => [...(tplPanelEl()?.querySelectorAll('.tok.active') || [])].map((t) => t.textContent).sort();
+  check('template: the suggested fields are pre-toggled as chips, snapped to whole words',
+    JSON.stringify(activeToks()) === JSON.stringify(['12', 'Amy,', 'March.'].sort()), JSON.stringify(activeToks()));
+
+  // 43 — clicking a word toggles it in or out of the field list with no
+  // further provider call: marking a plain word, unmarking a suggested one.
+  window.__sent = [];
+  tokByText('thank')?.click();
+  check('template: clicking a plain word marks it as a new field chip', !!tokByText('thank')?.classList.contains('active'));
+  check('template: toggling a field makes no further provider call', window.__sent.length === 0, JSON.stringify(window.__sent));
+  tokByText('12')?.click(); // unmark one word of the two-word Date field
+  check('template: unmarking one word of a multi-word field removes the whole field',
+    !tokByText('12')?.classList.contains('active') && !tokByText('March.')?.classList.contains('active'));
+
+  // 44 — Save calls #15's saveTemplate (via the worker) with the confirmed
+  // fields and the untouched original text, then closes the panel.
+  window.__saveTemplateReply = { ok: true };
+  window.__sent = [];
+  buttonNamed('Save template')?.click();
+  await wait(50);
+  check('template: Save sends QF_SAVE_TEMPLATE with the original text and the confirmed field list',
+    window.__lastSent?.type === 'QF_SAVE_TEMPLATE' && window.__lastSent.text === tplText &&
+    Array.isArray(window.__lastSent.fields) && window.__lastSent.fields.length === 2,
+    JSON.stringify(window.__lastSent));
+  check('template: the panel closes once the save succeeds', !tplPanelEl());
+
+  // 44b — saving past #15's cap shows its plain error in a Bubble, same as
+  // any other failure — the panel closes rather than staying stuck open.
+  window.__reply = { ok: true, text: tplText, fields: tplFields };
+  startOnTextarea('template', tplText);
+  await wait(200);
+  window.__saveTemplateReply = { ok: false, error: 'You have 50 saved templates already — delete one before saving another.' };
+  buttonNamed('Save template')?.click();
+  await wait(50);
+  check('template: a save past the cap shows #15\'s plain error in a Bubble',
+    !tplPanelEl() && /delete one before saving another/i.test(shadowText()), shadowText());
+  window.__saveTemplateReply = { ok: true };
+
+  // 44c — a degraded (empty-fields) reply still opens a savable panel: the
+  // action succeeds, the user just marks fields by hand instead.
+  window.__reply = { ok: true, text: tplText, fields: [] };
+  window.__sent = [];
+  startOnTextarea('template', tplText);
+  await wait(200);
+  check('template: an empty suggested-field list still opens the panel with no chips pre-marked',
+    !!tplPanelEl() && tplPanelEl().querySelectorAll('.tok.active').length === 0, shadowText());
+  buttonNamed('Save template')?.click();
+  await wait(50);
+  check('template: the degraded case still saves — the user just marked no fields',
+    window.__lastSent?.type === 'QF_SAVE_TEMPLATE' && window.__lastSent.text === tplText &&
+    Array.isArray(window.__lastSent.fields) && window.__lastSent.fields.length === 0,
+    JSON.stringify(window.__lastSent));
+
+  // 45 — Cancel saves nothing.
+  window.__reply = { ok: true, text: tplText, fields: tplFields };
+  startOnTextarea('template', tplText);
+  await wait(200);
+  window.__sent = [];
+  buttonNamed('Cancel')?.click();
+  check('template: Cancel closes the panel and saves nothing', !tplPanelEl() && window.__sent.length === 0);
+
+  // 46 — unavailable on a read-only selection: refused before any provider call.
+  ta.blur(); // otherwise captureTarget still reads the (still-focused) textarea's own selection
+  getSelection().removeAllRanges();
+  const tplRo = document.createElement('p');
+  tplRo.textContent = 'read-only text for template to skip';
+  document.getElementById('fixtures').appendChild(tplRo);
+  selectIn(tplRo.firstChild, 0, tplRo.firstChild.length);
+  window.__sent = [];
+  invoke('template');
+  await wait(100);
+  check('template: a read-only selection is refused with no provider call',
+    !tplPanelEl() && window.__sent.length === 0 && /select text you can edit/i.test(shadowText()), shadowText());
+
+  // 47 — no key → the same onboarding panel every other action opens.
+  window.__reply = { ok: false, code: 'NO_API_KEY', error: 'no key set' };
+  startOnTextarea('template', 'template needs a key');
+  await wait(50);
+  check('template: NO_API_KEY opens the onboarding panel, same as every other action',
+    !!onboardingPanel() && !shadow()?.querySelector('.card.error'), shadowText());
+  escape();
+
+  // 48 — a stale target is refused with the same staleness bubble other actions use.
+  ta.value = 'stale check text for template';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  window.__reply = { ok: true, text: 'stale check text for template', fields: [] };
+  window.__replyDelay = 50;
+  window.__lastSent = null;
+  invoke('template');
+  ta.value = 'the field changed before the reply arrived';
+  await wait(200);
+  check('template: a stale target is refused with the same staleness bubble other actions use',
+    !tplPanelEl() && /changed while/i.test(shadowText()), shadowText());
+  window.__replyDelay = 0;
+
+  // 49 — Escape closes the Template panel too.
+  window.__reply = { ok: true, text: 'text for the escape check', fields: [] };
+  startOnTextarea('template', 'text for the escape check');
+  await wait(200);
+  check('template: the panel is open before Escape', !!tplPanelEl());
+  escape();
+  check('template: Escape closes the panel', !tplPanelEl());
 
   const failed = results.filter((r) => r.startsWith('FAIL')).length;
   document.getElementById('out').textContent =

@@ -297,14 +297,14 @@
   }
 
   /**
-   * Coach never writes, so it never goes through replaceInInput/
-   * replaceInEditable — but it must refuse just as they would when the
+   * Coach and Template never write, so neither goes through replaceInInput/
+   * replaceInEditable — but both must refuse just as those would when the
    * field or selection has changed since it was captured. Mirrors their
    * comparisons rather than sharing code with them: those two also carry
    * the write itself, and re-shaping them around a check-only caller risked
    * changing the order they focus and re-select in ahead of an actual write.
    */
-  function assertCoachFresh(target) {
+  function assertStillFresh(target) {
     if (target.kind === 'input') {
       if (!target.el.isConnected) throw new QfError('That field has gone from the page — nothing was replaced.');
       if (target.el.value.slice(target.start, target.end) !== target.text) {
@@ -360,7 +360,8 @@
   const LABELS = {
     grammar: { working: 'Fixing…', done: 'Fixed' },
     translate: { working: 'Translating…', done: 'Translated' },
-    coach: { working: 'Coaching…' } // never written to a field, so there is no "done" flash
+    coach: { working: 'Coaching…' }, // never written to a field, so there is no "done" flash
+    template: { working: 'Finding fields…' } // never written to a field either
   };
 
   function run(action) {
@@ -381,6 +382,18 @@
   async function execute(action, target) {
     if (busy()) return;
 
+    // Reusing someone else's words as a personal template doesn't make sense
+    // (#17). The toolbar already never offers Template here (it never
+    // renders at all for a read-only selection) — this guard is the
+    // "disabled" half of that same rule, so the behaviour holds no matter
+    // how the action is invoked, not only from the circle that is already
+    // absent, and stays true even if a future entry point (context menu,
+    // shortcut) ever sends 'template' too.
+    if (action === 'template' && target.kind === 'readonly') {
+      UI.bubble({ rect: anchorRect(target), message: 'Select text you can edit to save it as a template.', kind: 'warn' });
+      return;
+    }
+
     const { lead, core, trail } = splitWhitespace(target.text);
     if (!core) {
       UI.bubble({ rect: anchorRect(target), message: 'Select some actual text first.', kind: 'warn' });
@@ -390,6 +403,8 @@
     UI.hideToolbar();
     UI.hideBubble();
     UI.hideOnboarding(); // a new action replaces the pending one the panel was holding
+    UI.hideCoachPanel();
+    UI.hideTemplatePanel();
     const req = { id: ++requestSeq, action, target, cancelTimer: null, stopTimer: null };
     const labels = LABELS[action] || LABELS.grammar;
     inFlight = req;
@@ -413,7 +428,7 @@
 
     try {
       if (action === 'coach') {
-        assertCoachFresh(target);
+        assertStillFresh(target);
         UI.coachPanel({
           rect: anchorRect(target),
           text: core, // the exact text sent to Gemini — spans are offsets into this, not target.text
@@ -421,6 +436,9 @@
           onFix: () => { UI.hideCoachPanel(); execute('grammar', target); },
           onDismiss: () => UI.hideCoachPanel()
         });
+      } else if (action === 'template') {
+        assertStillFresh(target);
+        showTemplatePreview(target, core, res.fields || []);
       } else {
         // Re-attach the exact whitespace the user had selected, so we do not eat
         // the leading space or the trailing newline of their selection.
@@ -436,7 +454,7 @@
     }
 
     settle(req);
-    if (action !== 'coach' && target.kind !== 'readonly') {
+    if (action !== 'coach' && action !== 'template' && target.kind !== 'readonly') {
       UI.flash(labels.done + (res.via === 'on-device' ? ' · on-device' : ''));
     }
   }
@@ -447,6 +465,74 @@
       return JSON.parse(text);
     } catch {
       return { overall: { level: 'fair', note: `${PRODUCT} could not read its own response. Try again.` }, categories: [] };
+    }
+  }
+
+  /* ============================================================ template */
+
+  /** Split on whitespace runs, so each clickable unit in the preview is one word (punctuation stays attached). */
+  function tokenize(text) {
+    const tokens = [];
+    const re = /\S+|\s+/g;
+    let m;
+    while ((m = re.exec(text))) {
+      tokens.push({ start: m.index, end: m.index + m[0].length, text: m[0], isWord: !/^\s/.test(m[0]) });
+    }
+    return tokens;
+  }
+
+  /**
+   * A suggested field's offsets may land mid-word; snap it out to the full
+   * word tokens it overlaps so every field the preview shows always lines
+   * up with whole, clickable words. Drops a field that covers no word at all.
+   */
+  function snapFieldToTokens(field, tokens) {
+    const covered = tokens.filter((t) => t.isWord && t.start < field.end && t.end > field.start);
+    if (!covered.length) return null;
+    return {
+      start: Math.min(...covered.map((t) => t.start)),
+      end: Math.max(...covered.map((t) => t.end)),
+      label: field.label
+    };
+  }
+
+  /** A first-pass template name: the text itself, trimmed to one line and a sensible length — never a provider call. */
+  function suggestTemplateName(text) {
+    const flat = text.trim().replace(/\s+/g, ' ');
+    if (!flat) return 'New template';
+    if (flat.length <= 40) return flat;
+    return flat.slice(0, 40).replace(/\s+\S*$/, '') + '…';
+  }
+
+  /** Show the Template preview panel, seeded with whatever fields Gemini suggested (already snapped to word boundaries). */
+  function showTemplatePreview(target, text, suggestedFields) {
+    const tokens = tokenize(text);
+    const initialFields = suggestedFields.map((f) => snapFieldToTokens(f, tokens)).filter(Boolean);
+    UI.templatePanel({
+      rect: anchorRect(target),
+      tokens,
+      initialFields,
+      initialName: suggestTemplateName(text),
+      onSave: (name, fields) => saveTemplateNow(target, name, text, fields),
+      onCancel: () => UI.hideTemplatePanel()
+    });
+  }
+
+  /** Ask the worker to save (#15's saveTemplate, via the background — a content script can import no module). */
+  async function saveTemplateNow(target, name, text, fields) {
+    let res;
+    try {
+      res = await sendToBackground({ type: 'QF_SAVE_TEMPLATE', name, text, fields });
+    } catch (err) {
+      UI.hideTemplatePanel();
+      UI.bubble({ rect: anchorRect(target), message: err.message, kind: 'error' });
+      return;
+    }
+    UI.hideTemplatePanel();
+    if (res?.ok) {
+      UI.flash('Template saved');
+    } else {
+      UI.bubble({ rect: anchorRect(target), message: res?.error || 'Could not save the template.', kind: 'error' });
     }
   }
 
@@ -631,11 +717,13 @@
     let onboardEl = null;
     let onboardClose = null;
     let coachEl = null;
+    let templateEl = null;
 
     // Per-action accents, shared by the CSS below and the toolbar's inline
     // icon strokes so a button's ring and its icon never drift apart.
     const SAGE = '#8FB89B'; // Fix, Translate
     const LAVENDER = '#A3A8D6'; // Coach
+    const SAND = '#C9B896'; // Template
 
     const CSS = `
       :host { all: initial; }
@@ -707,7 +795,7 @@
                                 font-weight: 500; padding: 5px 10px; border-radius: 6px;
                                 background: #4f46e5; color: #fff; white-space: nowrap; }
 
-      .coach-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+      .panel-eyebrow { font-size: 11px; font-weight: 700; text-transform: uppercase;
                       letter-spacing: .05em; color: #6b7280; margin-bottom: 8px; }
       .coach .excerpt { font-size: 13px; line-height: 1.6; margin: 0 0 12px;
                          max-height: 30vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -717,18 +805,32 @@
       .coach .cat-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12.5px; }
       .coach .cat-note { font-size: 12.5px; opacity: .85; margin: 2px 0 0 14px; }
       .coach .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; display: inline-block; margin-top: 2px; }
-      .coach .acts { display: flex; gap: 6px; margin-top: 14px; }
-      .coach .acts button { all: unset; cursor: pointer; font: inherit; font-size: 12px;
+
+      .coach .acts, .template .acts { display: flex; gap: 6px; margin-top: 14px; }
+      .coach .acts button, .template .acts button { all: unset; cursor: pointer; font: inherit; font-size: 12px;
                              padding: 5px 10px; border-radius: 6px; }
-      .coach .acts .fix { background: #4f46e5; color: #fff; }
-      .coach .acts .dismiss { color: inherit; text-decoration: underline; padding: 5px 2px; }
+      .coach .acts .primary, .template .acts .primary { background: #4f46e5; color: #fff; }
+      .coach .acts .secondary, .template .acts .secondary { color: inherit; text-decoration: underline; padding: 5px 2px; }
+
+      .template .template-preview { font-size: 13px; line-height: 1.9; margin: 0 0 8px;
+                           max-height: 30vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .template .tok { cursor: pointer; border-radius: 3px; padding: 0 1px; }
+      .template .tok:hover { background: rgba(201,184,150,.25); }
+      .template .tok.active { background: rgba(201,184,150,.4); box-shadow: 0 0 0 1px rgba(201,184,150,.7); }
+      .template .template-hint { font-size: 12px; color: #6b7280; margin-bottom: 14px; }
+      .template .template-name-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+                              letter-spacing: .04em; color: #6b7280; margin-bottom: 6px; }
+      .template .template-name { all: unset; box-sizing: border-box; width: 100%; font: inherit; font-size: 13px;
+                        padding: 7px 9px; border: 1px solid #d8dbe2; border-radius: 6px; background: #fff; color: #111827; }
+      .template .template-name:focus { border-color: #C9B896; box-shadow: 0 0 0 2px rgba(201,184,150,.35); }
 
       @media (prefers-color-scheme: dark) {
         .card { background: #1f2937; color: #f3f4f6; border-color: #374151; }
         .card.error { background: #3f1d1d; color: #fecaca; border-color: #7f1d1d; }
         .card.warn  { background: #422006; color: #fde68a; border-color: #78350f; }
         .card.ok    { background: #052e16; color: #bbf7d0; border-color: #14532d; }
-        .panel .head, .onboard .head, .onboard .note, .coach-title { color: #9ca3af; }
+        .panel .head, .onboard .head, .onboard .note, .panel-eyebrow, .template .template-hint { color: #9ca3af; }
+        .template .template-name { background: #111827; color: #f3f4f6; border-color: #4b5563; }
         .onboard input { background: #111827; color: #f3f4f6; border-color: #4b5563; }
         .onboard li img { border-color: #4b5563; }
         .onboard .status.busy { color: #d1d5db; }
@@ -972,12 +1074,12 @@
       coachEl = document.createElement('div');
       coachEl.className = 'card coach';
       coachEl.innerHTML =
-        '<div class="coach-title"></div>' +
+        '<div class="panel-eyebrow"></div>' +
         '<div class="excerpt"></div>' +
         '<div class="overall"></div>' +
         '<div class="cats"></div>' +
-        '<div class="acts"><button class="fix">Fix these for me</button><button class="dismiss">Got it</button></div>';
-      coachEl.querySelector('.coach-title').textContent = `${PRODUCT} — Coach`;
+        '<div class="acts"><button class="primary">Fix these for me</button><button class="secondary">Got it</button></div>';
+      coachEl.querySelector('.panel-eyebrow').textContent = `${PRODUCT} — Coach`;
 
       const allSpans = (payload.categories || []).flatMap((c) => c.spans || []);
       coachEl.querySelector('.excerpt').appendChild(highlightedText(text, allSpans));
@@ -1005,8 +1107,8 @@
         catsEl.appendChild(row);
       }
 
-      coachEl.querySelector('.fix').addEventListener('click', onFix);
-      coachEl.querySelector('.dismiss').addEventListener('click', onDismiss);
+      coachEl.querySelector('.primary').addEventListener('click', onFix);
+      coachEl.querySelector('.secondary').addEventListener('click', onDismiss);
       r.layer.appendChild(coachEl);
       place(coachEl, rect, 8);
     }
@@ -1014,6 +1116,80 @@
     function hideCoachPanel() {
       coachEl?.remove();
       coachEl = null;
+    }
+
+    /**
+     * The Template preview: the text split into clickable word tokens, the
+     * suggested fields already toggled on, a suggested-but-editable name,
+     * then Save (calls `onSave(name, fields)` with whatever is toggled at
+     * that moment) or Cancel (calls `onCancel`, nothing saved). Toggling a
+     * word is purely local — no further provider call — so the whole
+     * interaction lives in this one closure rather than round-tripping
+     * through the caller for every click.
+     */
+    function templatePanel({ rect, tokens, initialFields, initialName, onSave, onCancel }) {
+      hideTemplatePanel();
+      const r = ensure();
+      let fields = initialFields.map((f) => ({ ...f }));
+      let counter = 0;
+
+      templateEl = document.createElement('div');
+      templateEl.className = 'card template';
+      templateEl.innerHTML =
+        '<div class="panel-eyebrow"></div>' +
+        '<div class="template-preview"></div>' +
+        '<div class="template-hint"></div>' +
+        '<label class="template-name-label" for="qf-template-name">Template name</label>' +
+        '<input id="qf-template-name" class="template-name" type="text" autocomplete="off">' +
+        '<div class="acts"><button class="primary">Save template</button><button class="secondary">Cancel</button></div>';
+      templateEl.querySelector('.panel-eyebrow').textContent = `${PRODUCT} — Template this`;
+      templateEl.querySelector('.template-name').value = initialName;
+
+      const previewEl = templateEl.querySelector('.template-preview');
+      const hintEl = templateEl.querySelector('.template-hint');
+      const fieldAt = (pos) => fields.find((f) => pos.start < f.end && pos.end > f.start);
+
+      function render() {
+        previewEl.replaceChildren();
+        for (const tok of tokens) {
+          if (!tok.isWord) {
+            previewEl.appendChild(document.createTextNode(tok.text));
+            continue;
+          }
+          const span = document.createElement('span');
+          span.className = 'tok';
+          span.textContent = tok.text;
+          if (fieldAt(tok)) span.classList.add('active');
+          span.addEventListener('click', () => {
+            const existing = fieldAt(tok);
+            if (existing) {
+              fields = fields.filter((f) => f !== existing);
+            } else {
+              counter++;
+              fields.push({ start: tok.start, end: tok.end, label: `Field ${counter}` });
+            }
+            render();
+          });
+          previewEl.appendChild(span);
+        }
+        hintEl.textContent = fields.length
+          ? `${fields.length} field${fields.length === 1 ? '' : 's'} detected — click any word to mark or unmark it.`
+          : 'No fields yet — click any word to mark it as one.';
+      }
+      render();
+
+      templateEl.querySelector('.primary').addEventListener('click', () => {
+        onSave(templateEl.querySelector('.template-name').value.trim(), fields.map(({ start, end, label }) => ({ start, end, label })));
+      });
+      templateEl.querySelector('.secondary').addEventListener('click', onCancel);
+
+      r.layer.appendChild(templateEl);
+      place(templateEl, rect, 8);
+    }
+
+    function hideTemplatePanel() {
+      templateEl?.remove();
+      templateEl = null;
     }
 
     /**
@@ -1148,14 +1324,24 @@
         icon: '<path d="M3.5 5.5h13a1 1 0 011 1v6a1 1 0 01-1 1H8l-3.5 3v-3H3.5a1 1 0 01-1-1v-6a1 1 0 011-1z"/><path d="M6.5 8.5h7M6.5 11h4.5"/>',
         accent: LAVENDER
       });
+      // Editable-only by construction: this toolbar never renders at all for a
+      // read-only selection (see maybeShowToolbar), so Template needs no extra
+      // hide/disable logic of its own to stay off read-only text.
+      const template = toolbarButton({
+        label: 'Template',
+        title: 'Template — save this as a reusable template',
+        icon: '<rect x="4" y="3" width="12" height="14" rx="1.5"/><path d="M7 7.5h6" stroke-dasharray="1.6 1.6"/><path d="M7 10.5h6" stroke-dasharray="1.6 1.6"/><path d="M7 13.5h3.5" stroke-dasharray="1.6 1.6"/>',
+        accent: SAND
+      });
 
       // Do not let the click steal the selection out from under us.
       barEl.addEventListener('mousedown', (e) => e.preventDefault());
       fix.addEventListener('click', () => run('grammar'));
       tr.addEventListener('click', () => run('translate'));
       coach.addEventListener('click', () => run('coach'));
+      template.addEventListener('click', () => run('template'));
 
-      barEl.append(fix, tr, coach);
+      barEl.append(fix, tr, coach, template);
       r.layer.appendChild(barEl);
       place(barEl, rect, 6);
     }
@@ -1169,7 +1355,8 @@
       indicator, indicatorWithCancel, hideIndicator,
       bubble, hideBubble, flash, result, hidePanel, showToolbar, hideToolbar,
       onboarding, onboardingStatus, hideOnboarding,
-      coachPanel, hideCoachPanel
+      coachPanel, hideCoachPanel,
+      templatePanel, hideTemplatePanel
     };
   })();
 
@@ -1219,7 +1406,7 @@
   document.addEventListener('scroll', () => { UI.hideToolbar(); UI.hideBubble(); }, true);
   window.addEventListener('blur', () => UI.hideToolbar());
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); UI.hideOnboarding(); UI.hideCoachPanel(); }
+    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); UI.hideOnboarding(); UI.hideCoachPanel(); UI.hideTemplatePanel(); }
   }, true);
 
   /* ============================================================= messaging */

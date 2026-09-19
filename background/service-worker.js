@@ -15,6 +15,7 @@ import { getSettings, saveSettings } from '../lib/config.js';
 import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
 import { onDeviceStatus } from '../lib/on-device.js';
 import { KEY_PAGE_URL, WHY_LINE, STEPS, ONE_KEY_NOTE, SUCCESS_LINE } from '../lib/onboarding.js';
+import { saveTemplate } from '../lib/templates.js';
 
 const MENU_ROOT = 'qf-root';
 const MENU_GRAMMAR = 'qf-grammar';
@@ -153,6 +154,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  // A content script can import no module, so Template's save goes through
+  // the worker, which owns lib/templates.js the same way it owns lib/ai.js.
+  if (msg?.type === 'QF_SAVE_TEMPLATE') {
+    handleSaveTemplate(msg).then(sendResponse);
+    return true; // async
+  }
+
   return false;
 });
 
@@ -174,14 +182,28 @@ async function handleAi(msg) {
   const id = msg.id;
   try {
     const settings = await getSettings();
-    const { text, via } = await runAction(msg.action, msg.text, settings);
-    return { ok: true, id, text, via };
+    const { text, via, fields } = await runAction(msg.action, msg.text, settings);
+    return { ok: true, id, text, via, fields };
   } catch (err) {
     if (err instanceof AiError) {
       return { ok: false, id, code: err.code, error: err.message };
     }
     console.error('[Kalima]', err);
     return { ok: false, id, code: 'UNKNOWN', error: 'Something went wrong: ' + (err?.message || err) };
+  }
+}
+
+/**
+ * Save a template (#15/#17). `saveTemplate` throws a plain Error (the
+ * 50-template cap), never an AiError — there is no provider code to map,
+ * just the message, for the content script to show directly in a bubble.
+ */
+async function handleSaveTemplate(msg) {
+  try {
+    await saveTemplate({ name: msg.name, text: msg.text, fields: msg.fields });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Could not save the template.' };
   }
 }
 

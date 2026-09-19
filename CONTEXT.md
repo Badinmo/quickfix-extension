@@ -25,7 +25,8 @@ _Avoid_: private, secure, local (those mean different things; see On-device mode
 ## Actions and text
 
 **Action**:
-One of the operations a user can run on a selection. Today: grammar, translate and Coach.
+One of the operations a user can run on a selection. Today: grammar, translate, Coach and
+Template.
 _Avoid_: command, feature, mode, tool
 
 **Selection**:
@@ -46,6 +47,23 @@ Got it to dismiss with nothing changed. English-only for v1; structured after IE
 writing-assessment categories but never named or scored like an exam anywhere a user can see
 ([ADR 0007](docs/adr/0007-coach-generic-writing-advice-english-only.md)).
 _Avoid_: feedback, review, grade, score, IELTS, band
+
+**Template**:
+The action that marks which parts of an already-fixed selection are likely to change the next
+time it's reused, then saves it (name, original text and confirmed fields) via `lib/templates.js`
+(#15) for Reuse, a later action, to fill in. Suggests Fields as toggleable chips over the text;
+the user corrects the suggestion by clicking any word, then confirms a suggested-but-editable
+name. Never rewrites the text — the result's `text` is always identical to the input — and
+unavailable on a Read-only selection, the same as it never renders in the Toolbar there in the
+first place.
+_Avoid_: snippet, macro, boilerplate
+
+**Field**:
+A marked variable span within a Template — a name, a date, an order number — given a short label
+and, once filled, replaced with a real value or left as a visible `[Label]` placeholder
+(`lib/templates.js`'s `fillTemplate`). Distinct from Coach's `spans`: a Field is something the user
+confirms and later fills in, not just a spot a note points to.
+_Avoid_: variable, placeholder, blank, token
 
 **Whole-field fallback**:
 With nothing selected in an `<input>` or `<textarea>`, an action operates on the whole field.

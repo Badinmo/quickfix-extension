@@ -1327,6 +1327,94 @@ async function main() {
   check('coach code path never mentions IELTS', !/ielts/i.test(coachSrc));
   check('coach code path never mentions a "band"', !/band/i.test(coachSrc));
 
+  // 34 — template: a well-formed field-detection reply carries the fields
+  // and leaves `text` byte-for-byte identical to the input — Template never
+  // rewrites wording, only annotates it.
+  const tplText = 'Dear Amy, thank you for the update on 12 March.';
+  const tplFields = [
+    { start: tplText.indexOf('Amy'), end: tplText.indexOf('Amy') + 3, label: 'Name' },
+    { start: tplText.indexOf('12 March'), end: tplText.indexOf('12 March') + 8, label: 'Date' }
+  ];
+  reset();
+  script(reply(JSON.stringify({ fields: tplFields })));
+  r = await run('template', tplText);
+  check('template: text comes back byte-for-byte identical to the input',
+    r.value?.text === tplText, JSON.stringify(r));
+  check('template: the suggested fields round-trip with their offsets and labels',
+    JSON.stringify(r.value?.fields) === JSON.stringify(tplFields), JSON.stringify(r.value?.fields));
+  check('template: the request asks Gemini for JSON via responseMimeType',
+    lastBody()?.generationConfig?.responseMimeType === 'application/json', JSON.stringify(lastBody()?.generationConfig));
+
+  // 35 — every rewrite action is also proved never to alter wording — the
+  // point of Template's own seam — by checking a case with heavier
+  // punctuation and no suggested fields at all still comes back untouched.
+  reset();
+  script(reply(JSON.stringify({ fields: [] })));
+  const tplPunct = 'Re: invoice #4821 — please confirm by 5pm.';
+  r = await run('template', tplPunct);
+  check('template: an empty field list still returns the input text unchanged',
+    r.value?.text === tplPunct && Array.isArray(r.value?.fields) && r.value.fields.length === 0, JSON.stringify(r));
+
+  // 36 — a reply that fails to parse as the required shape retries once
+  // with a stricter reminder; a second failure degrades to an empty field
+  // list rather than an error — the action still succeeds.
+  reset();
+  script(
+    http(200, { candidates: [{ content: { parts: [{ text: 'not json at all' }] }, finishReason: 'STOP' }] }),
+    reply(JSON.stringify({ fields: tplFields }))
+  );
+  r = await run('template', tplText);
+  check('template: malformed JSON retries once and the valid retry reply is used',
+    r.value?.text === tplText && JSON.stringify(r.value?.fields) === JSON.stringify(tplFields), JSON.stringify(r));
+  check('template: exactly two requests were made for the retry', window.__fetches.length === 2, String(window.__fetches.length));
+
+  reset();
+  const overlapping = { fields: [{ start: 0, end: 5, label: 'A' }, { start: 3, end: 8, label: 'B' }] };
+  script(reply(JSON.stringify(overlapping)), reply(JSON.stringify({ fields: tplFields })));
+  r = await run('template', tplText);
+  check('template: overlapping spans (the prompt\'s own rule broken) are treated as malformed and retried',
+    r.value?.text === tplText && JSON.stringify(r.value?.fields) === JSON.stringify(tplFields), JSON.stringify(r));
+
+  reset();
+  script(
+    http(200, { candidates: [{ content: { parts: [{ text: 'nope' }] }, finishReason: 'STOP' }] }),
+    http(200, { candidates: [{ content: { parts: [{ text: 'still not json' }] }, finishReason: 'STOP' }] })
+  );
+  r = await run('template', tplText);
+  check('template: two malformed replies degrade to an empty field list, never an error',
+    r.value?.text === tplText && Array.isArray(r.value?.fields) && r.value.fields.length === 0, JSON.stringify(r));
+
+  // 37 — template reuses the one provider seam: every HTTP/network/timeout
+  // code grammar/translate/coach can throw maps exactly the same way.
+  await expectError('template: 400 mentioning the API key → BAD_KEY, no retry',
+    [http(400, { error: { message: 'API key not valid. Please pass a valid API key.' } })], 'BAD_KEY', { action: 'template', fetches: 1 });
+  await expectError('template: 401 → BAD_KEY', [http(401, {})], 'BAD_KEY', { action: 'template', fetches: 1 });
+  await expectError('template: 403 → BAD_KEY', [http(403, { error: { message: 'PERMISSION_DENIED' } })], 'BAD_KEY', { action: 'template', fetches: 1 });
+  await expectError('template: 400 for anything else → INVALID_ARGUMENT after every variant is tried',
+    Array(6).fill(0).map(() => http(400, { error: { message: 'Unknown name "thinkingLevel"' } })), 'INVALID_ARGUMENT', { action: 'template', fetches: 6 });
+  await expectError('template: 418 (unmapped) → HTTP_418', [http(418, {})], 'HTTP_418', { action: 'template', fetches: 1 });
+  await expectError('template: 404 → BAD_MODEL (after the one list refresh)',
+    [http(404, { error: { message: 'model not found' } }), http(500)], 'BAD_MODEL', { action: 'template', fetches: 2 });
+  await expectError('template: 429 → RATE_LIMIT', [http(429, { error: { message: 'quota' } })], 'RATE_LIMIT', { action: 'template', fetches: 1 });
+  await expectError('template: 500 → SERVER', [http(500)], 'SERVER', { action: 'template', fetches: 1 });
+  await expectError('template: fetch throws → NETWORK, no retry', [after(0, networkFailure())], 'NETWORK', { action: 'template', fetches: 1 });
+  await expectError('template: promptFeedback.blockReason → BLOCKED',
+    [http(200, { promptFeedback: { blockReason: 'SAFETY' }, candidates: [] })], 'BLOCKED', { action: 'template' });
+  await expectError('template: finishReason MAX_TOKENS with text → TRUNCATED',
+    [reply('{"cut', { finishReason: 'MAX_TOKENS' })], 'TRUNCATED', { action: 'template' });
+  await expectError('template: no candidates → EMPTY_RESPONSE', [http(200, { candidates: [] })], 'EMPTY_RESPONSE', { action: 'template' });
+  await expectError('template: no API key → NO_API_KEY, nothing fetched', [reply('x')], 'NO_API_KEY',
+    { action: 'template', settings: { ...SETTINGS, apiKey: '' }, fetches: 0 });
+  await expectError('template: empty text → EMPTY, nothing fetched', [reply('x')], 'EMPTY', { action: 'template', text: '   \n', fetches: 0 });
+  await expectError('template: text over MAX_CHARS → TOO_LONG, nothing fetched', [reply('x')], 'TOO_LONG',
+    { action: 'template', text: 'a'.repeat(MAX_CHARS + 1), fetches: 0 });
+
+  reset();
+  script(never());
+  r = await run('template', 'hello there');
+  check('template: a hung request still hits the 20 s hard stop → TIMEOUT', r.error?.code === 'TIMEOUT', JSON.stringify(r));
+  check('template: a failed action clears its deadline timer', H.pendingTimers() === 0, `pending = ${H.pendingTimers()}`);
+
   const failed = results.filter((x) => x.startsWith('FAIL')).length;
   document.getElementById('out').textContent =
     results.join('\n') + `\n\n${results.length - failed}/${results.length} passed` +
