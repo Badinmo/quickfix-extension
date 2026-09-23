@@ -34,10 +34,12 @@
 <body>
 
 <h1>Kalima Privacy Policy</h1>
-<p class="updated">Last updated: 2026-09-18</p>
+<p class="updated">Last updated: 2026-09-23</p>
 
-<p>Kalima is a browser extension for personal use that fixes grammar and translates text
-inside web pages. This policy explains what it does and does not do with your data.</p>
+<p>Kalima is a browser extension for personal use that fixes grammar, translates text,
+gives a plain-language writing check-up, and lets you save and reuse text as
+templates, inside web pages. This policy explains what it does and does not do with
+your data.</p>
 
 <p class="callout"><strong>No middleman: your text goes straight from your browser to your own AI
 account. We never see it.</strong></p>
@@ -54,12 +56,15 @@ listeners that run without you explicitly triggering an action.</p>
 <h2>Where your text goes</h2>
 <p>The text you select is sent to Google's Gemini API
 (<code>https://generativelanguage.googleapis.com</code>), using your own personal Gemini API key, so
-it can be corrected or translated. That request is made directly from the extension's
-background service worker to Google's servers, under your own Google account. Google's
-handling of that data is governed by
+it can be corrected, translated, or assessed for a writing check-up (Coach), or so its
+likely-to-change parts can be suggested (Template). That request is made directly from
+the extension's background service worker to Google's servers, under your own Google
+account. Google's handling of that data is governed by
 <a href="https://ai.google.dev/gemini-api/terms">Google's own privacy policy and Gemini API terms</a> —
 Kalima has no control over Google's retention or use of that data beyond what those terms
 describe.</p>
+<p>Reusing a saved template (Reuse) makes no request to Google, or anywhere else: it is
+looked up and filled in entirely on your device.</p>
 <p>No other server, analytics service, or third party ever receives your text. Kalima has no
 backend of its own, so there is nothing in between your browser and your AI account.
 Gemini is the only cloud provider Kalima supports today.</p>
@@ -76,22 +81,28 @@ work in Microsoft Edge (version 148 and later), which ships its own implementati
 the same browser API.</p>
 
 <h2>What Kalima stores</h2>
-<p>Your Gemini API key and your settings (target language, tone, and similar preferences)
-are stored locally on your device only, using the browser's <code>chrome.storage.local</code> API.
-This data:</p>
+<p>Your Gemini API key, your settings (target language, tone, and similar preferences),
+and any templates you save with the Template action (the template's name, its text,
+and which parts of that text you've marked as fields) are stored locally on your
+device only, using the browser's <code>chrome.storage.local</code> API. This data:</p>
 <ul>
   <li>never leaves your device except as part of a request you triggered to Google's Gemini
-  API (the API key is sent as a request header, as required to authenticate that call)</li>
+  API (the API key is sent as a request header, as required to authenticate that call;
+  a template's text is never sent anywhere by saving or reusing it)</li>
   <li>is never synced through your browser account (Chrome/Edge sync is deliberately not
   used for this data)</li>
   <li>is never sent to the extension's developer or any analytics service — there is no
   analytics or telemetry of any kind in this extension</li>
 </ul>
+<p>A saved template is only ever text you chose to save, kept only on your device, and
+visible only to you — the same way your settings are.</p>
 
 <h2>Data retention and deletion</h2>
-<p>Removing the extension deletes all locally stored settings and your API key
-immediately, since they exist only in the browser's local extension storage. Kalima
-does not retain a copy anywhere else, because it has no server of its own.</p>
+<p>Removing the extension deletes all locally stored settings, your API key, and any
+saved templates immediately, since they exist only in the browser's local extension
+storage. Kalima does not retain a copy anywhere else, because it has no server of its
+own. You can also delete a saved template individually at any time, from the
+Templates section of Settings, without removing the extension.</p>
 
 <h2>Changes to this policy</h2>
 <p>If this policy changes, the "Last updated" date above will change accordingly.</p>

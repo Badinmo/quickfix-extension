@@ -25,18 +25,28 @@ Fix or translate text in place. No middleman: your text goes straight from your 
 **Description**
 ```
 Kalima is invisible until invoked: no underlines, no scanning, no prompts, until you
-select some text and ask. Fix grammar and structure, or translate, right where you're
-typing - a support ticket, a webmail reply, a form field - without switching tabs or
-copying into a separate tool.
+select some text and ask. Fix grammar and structure, translate, get a quick writing
+check-up, or turn a fixed message into a reusable template - right where you're typing
+- a support ticket, a webmail reply, a form field - without switching tabs or copying
+into a separate tool.
 
 No middleman: your text goes straight from your browser to your own AI account. We
 never see it.
 
 HOW IT WORKS
-Select the text you want to change, then press Alt+G to fix grammar or Alt+T to
-translate. The result replaces your selection in place. Ctrl+Z undoes it like any
-other edit. A right-click menu and a small floating toolbar are also available as
-alternatives to the keyboard shortcut.
+Select some text and a small floating toolbar appears with five actions:
+
+- Fix grammar (Alt+G) - corrects grammar, spelling and structure in place
+- Translate (Alt+T) - translates to your chosen language in place
+- Coach - a quick, plain-language check-up on grammar, word choice, clarity and tone,
+  shown in a panel next to your text, with a one-click hand-off to Fix
+- Template - marks the parts of an already-fixed message likely to change next time
+  (a name, a date, an order number) and saves it for later
+- Reuse - picks a saved template, fills in its blanks, and inserts it
+
+Fix, Translate and Reuse replace your selection in place; Ctrl+Z undoes it like any
+other edit. A right-click menu offers Fix grammar and Translate as alternatives to the
+keyboard shortcut.
 
 WHAT IT TOUCHES
 Kalima only ever reads the text you've explicitly selected (or the single field
@@ -60,9 +70,10 @@ Enable "Allow extensions from other stores" in edge://extensions, then install t
 same Chrome Web Store item.
 
 SETTINGS
-Your API key, target language, tone, and behaviour are set once in Settings and
-stored locally on your device (chrome.storage.local) - never synced through your
-browser account.
+Your API key, target language, tone, and behaviour are set once in Settings, which
+also has a Templates section for managing everything you've saved with the Template
+action - all stored locally on your device (chrome.storage.local) - never synced
+through your browser account.
 
 This is a personal-use tool, distributed unlisted rather than through public search.
 ```
@@ -92,10 +103,13 @@ docs/images/listing-onboarding.png    - the in-page onboarding panel (first-run,
 
 **Single purpose description**
 ```
-Kalima has a single purpose: when the user explicitly selects text in a web page
-and triggers an action (keyboard shortcut, right-click menu, or floating toolbar),
-it fixes that text's grammar or translates it, then replaces the selection with the
-result. It performs no other function.
+Kalima has a single purpose: helping the user write, in place, the text they have
+explicitly selected in a web page. When the user triggers an action (keyboard
+shortcut, right-click menu, or floating toolbar), it fixes that text's grammar,
+translates it, gives a plain-language assessment of its writing quality, saves it as
+a reusable template, or fills in and inserts a previously saved template - always
+only the text the user selected, always only on explicit request. It performs no
+other function.
 ```
 
 **Permission justifications** — the dashboard asks for one per sensitive permission.
@@ -104,7 +118,7 @@ these is requested, and none was added purely for the on-device feature.
 
 | Permission | Justification |
 |---|---|
-| `storage` | Stores the user's Gemini API key and preferences (target language, tone, on-device toggle, etc.) locally, so they're set once and reused. |
+| `storage` | Stores the user's Gemini API key, preferences (target language, tone, on-device toggle, etc.), and any templates saved via the Template action, locally, so they're set once and reused. |
 | `contextMenus` | Adds "Fix grammar" / "Translate" items to the right-click menu as an alternative to the keyboard shortcut. |
 | `offscreen` | Used only when the user opts in to the experimental on-device translate toggle (off by default) on Chrome, which does not expose the built-in Translator/Language Detector APIs to the extension's background service worker. An invisible, hidden offscreen document runs those on-device calls instead; it never loads or contacts any URL and exists solely to reach an API the worker's own context cannot. It is feature-detected, not created at all unless the on-device toggle is on and needed. |
 | `host_permissions` — `https://generativelanguage.googleapis.com/*` | The extension calls Google's Gemini API from the background service worker to process the user's selected text. No other host is contacted. |
@@ -117,13 +131,16 @@ collects/uses. Answer:
 - **Collects:** the text the user has explicitly selected, at the moment they trigger
   an action. Nothing else.
 - **Sent to:** Google's Gemini API (`generativelanguage.googleapis.com`), using the
-  user's own API key, solely to produce the corrected/translated text. When the
-  on-device translate toggle is on and the browser supports the language pair, a
-  translate action is instead processed entirely on the user's machine and nothing
-  is sent anywhere for that action.
-- **Stored:** the API key and settings, locally on-device only
-  (`chrome.storage.local`), never transmitted anywhere except to Google's API as part
-  of a request, and never synced via the browser account.
+  user's own API key, to produce the corrected/translated text, the Coach assessment,
+  or the Template field suggestions. When the on-device translate toggle is on and the
+  browser supports the language pair, a translate action is instead processed entirely
+  on the user's machine and nothing is sent anywhere for that action. The Reuse action
+  makes no network request at all - filling in and inserting a saved template is pure
+  local lookup.
+- **Stored:** the API key, settings, and any templates the user saves via the Template
+  action (a name, the fixed text, and which parts of it are marked as fields) -
+  locally on-device only (`chrome.storage.local`), never transmitted anywhere except
+  to Google's API as part of a request, and never synced via the browser account.
 - **Not collected:** browsing history, page content the user hasn't selected, analytics,
   telemetry. There is no tracking of any kind.
 

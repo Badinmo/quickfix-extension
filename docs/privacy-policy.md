@@ -1,9 +1,11 @@
 # Kalima Privacy Policy
 
-*Last updated: 2026-09-18*
+*Last updated: 2026-09-23*
 
-Kalima is a browser extension for personal use that fixes grammar and translates text
-inside web pages. This policy explains what it does and does not do with your data.
+Kalima is a browser extension for personal use that fixes grammar, translates text,
+gives a plain-language writing check-up, and lets you save and reuse text as
+templates, inside web pages. This policy explains what it does and does not do with
+your data.
 
 **No middleman: your text goes straight from your browser to your own AI account. We never
 see it.**
@@ -23,12 +25,16 @@ listeners that run without you explicitly triggering an action.
 
 The text you select is sent to Google's Gemini API
 (`https://generativelanguage.googleapis.com`), using your own personal Gemini API key, so
-it can be corrected or translated. That request is made directly from the extension's
-background service worker to Google's servers, under your own Google account. Google's
-handling of that data is governed by
+it can be corrected, translated, or assessed for a writing check-up (Coach), or so its
+likely-to-change parts can be suggested (Template). That request is made directly from
+the extension's background service worker to Google's servers, under your own Google
+account. Google's handling of that data is governed by
 [Google's own privacy policy and Gemini API terms](https://ai.google.dev/gemini-api/terms) —
 Kalima has no control over Google's retention or use of that data beyond what those terms
 describe.
+
+Reusing a saved template (Reuse) makes no request to Google, or anywhere else: it is
+looked up and filled in entirely on your device.
 
 No other server, analytics service, or third party ever receives your text. Kalima has no
 backend of its own, so there is nothing in between your browser and your AI account.
@@ -48,22 +54,29 @@ the same browser API.
 
 ## What Kalima stores
 
-Your Gemini API key and your settings (target language, tone, and similar preferences)
-are stored locally on your device only, using the browser's `chrome.storage.local` API.
-This data:
+Your Gemini API key, your settings (target language, tone, and similar preferences),
+and any templates you save with the Template action (the template's name, its text,
+and which parts of that text you've marked as fields) are stored locally on your
+device only, using the browser's `chrome.storage.local` API. This data:
 
 - never leaves your device except as part of a request you triggered to Google's Gemini
-  API (the API key is sent as a request header, as required to authenticate that call)
+  API (the API key is sent as a request header, as required to authenticate that call;
+  a template's text is never sent anywhere by saving or reusing it)
 - is never synced through your browser account (Chrome/Edge sync is deliberately not
   used for this data)
 - is never sent to the extension's developer or any analytics service — there is no
   analytics or telemetry of any kind in this extension
 
+A saved template is only ever text you chose to save, kept only on your device, and
+visible only to you — the same way your settings are.
+
 ## Data retention and deletion
 
-Removing the extension deletes all locally stored settings and your API key
-immediately, since they exist only in the browser's local extension storage. Kalima
-does not retain a copy anywhere else, because it has no server of its own.
+Removing the extension deletes all locally stored settings, your API key, and any
+saved templates immediately, since they exist only in the browser's local extension
+storage. Kalima does not retain a copy anywhere else, because it has no server of its
+own. You can also delete a saved template individually at any time, from the
+Templates section of Settings, without removing the extension.
 
 ## Changes to this policy
 
