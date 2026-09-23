@@ -296,6 +296,13 @@
     }
   }
 
+  /** Collapse newlines for a single-line input, then write through whichever of the two replace functions the target's kind needs. */
+  function writeEditableText(target, out) {
+    if (target.singleLine) out = out.replace(/\s*\n+\s*/g, ' ');
+    if (target.kind === 'input') replaceInInput(target, out);
+    else replaceInEditable(target, out);
+  }
+
   /**
    * Coach and Template never write, so neither goes through replaceInInput/
    * replaceInEditable — but both must refuse just as those would when the
@@ -364,6 +371,16 @@
     template: { working: 'Finding fields…' } // never written to a field either
   };
 
+  /** Every long-lived surface a new action (or Reuse opening) must clear first, so exactly one is ever showing. */
+  function hideAllPanels() {
+    UI.hideToolbar();
+    UI.hideBubble();
+    UI.hideOnboarding();
+    UI.hideCoachPanel();
+    UI.hideTemplatePanel();
+    UI.hideReusePanel();
+  }
+
   function run(action) {
     if (busy()) return;
 
@@ -394,17 +411,26 @@
       return;
     }
 
+    // Reuse (#18) makes no provider call at all — opening the library panel
+    // is the whole "action" — so it skips the request/indicator/never-stuck
+    // machinery below entirely, but the read-only refusal is the same rule
+    // as Template's, for the same reason: nowhere to insert the filled text.
+    if (action === 'reuse') {
+      if (target.kind === 'readonly') {
+        UI.bubble({ rect: anchorRect(target), message: 'Select text you can edit to reuse a template into.', kind: 'warn' });
+        return;
+      }
+      hideAllPanels();
+      return openReusePanel(target);
+    }
+
     const { lead, core, trail } = splitWhitespace(target.text);
     if (!core) {
       UI.bubble({ rect: anchorRect(target), message: 'Select some actual text first.', kind: 'warn' });
       return;
     }
 
-    UI.hideToolbar();
-    UI.hideBubble();
-    UI.hideOnboarding(); // a new action replaces the pending one the panel was holding
-    UI.hideCoachPanel();
-    UI.hideTemplatePanel();
+    hideAllPanels(); // a new action replaces whichever pending one was holding the UI
     const req = { id: ++requestSeq, action, target, cancelTimer: null, stopTimer: null };
     const labels = LABELS[action] || LABELS.grammar;
     inFlight = req;
@@ -443,11 +469,8 @@
         // Re-attach the exact whitespace the user had selected, so we do not eat
         // the leading space or the trailing newline of their selection.
         let out = lead + res.text + trail;
-        if (target.singleLine) out = out.replace(/\s*\n+\s*/g, ' ');
-
-        if (target.kind === 'input') replaceInInput(target, out);
-        else if (target.kind === 'editable') replaceInEditable(target, out);
-        else UI.result(anchorRect(target), out); // not editable — offer it to copy
+        if (target.kind === 'readonly') UI.result(anchorRect(target), out); // not editable — offer it to copy
+        else writeEditableText(target, out);
       }
     } catch (err) {
       return fail(req, err instanceof QfError ? err.message : `${PRODUCT} failed: ${err?.message || err}`);
@@ -533,6 +556,56 @@
       UI.flash('Template saved');
     } else {
       UI.bubble({ rect: anchorRect(target), message: res?.error || 'Could not save the template.', kind: 'error' });
+    }
+  }
+
+  /* =============================================================== reuse */
+
+  /** Ask the worker for #15's saved templates (no provider call) and show the library panel. */
+  async function openReusePanel(target) {
+    let res;
+    try {
+      res = await sendToBackground({ type: 'QF_LIST_TEMPLATES' });
+    } catch (err) {
+      return UI.bubble({ rect: anchorRect(target), message: err.message, kind: 'error' });
+    }
+    if (!res?.ok) {
+      return UI.bubble({ rect: anchorRect(target), message: res?.error || `No response from ${PRODUCT}. Try reloading the page.`, kind: 'error' });
+    }
+    UI.reusePanel({
+      rect: anchorRect(target),
+      templates: res.templates || [],
+      onInsert: (template, values) => insertTemplate(target, template, values),
+      onDismiss: () => UI.hideReusePanel()
+    });
+  }
+
+  /**
+   * Fill the template (the worker's fillTemplate, #15) and write it in —
+   * not a new write path: the same staleness check and replaceInInput/
+   * replaceInEditable that Fix and Translate use, so undo, the staleness
+   * abort and single-line newline collapsing all come for free. Unlike
+   * those two, there is no lead/trail whitespace to re-attach: a template
+   * is its own text, not a corrected version of the selection it replaces.
+   */
+  async function insertTemplate(target, template, values) {
+    let res;
+    try {
+      res = await sendToBackground({ type: 'QF_FILL_TEMPLATE', template, values });
+    } catch (err) {
+      UI.hideReusePanel();
+      return UI.bubble({ rect: anchorRect(target), message: err.message, kind: 'error' });
+    }
+    UI.hideReusePanel();
+    if (!res?.ok) {
+      return UI.bubble({ rect: anchorRect(target), message: res?.error || 'Could not fill that template.', kind: 'error' });
+    }
+    try {
+      assertStillFresh(target);
+      writeEditableText(target, res.text);
+      UI.flash('Inserted');
+    } catch (err) {
+      UI.bubble({ rect: anchorRect(target), message: err instanceof QfError ? err.message : `${PRODUCT} failed: ${err?.message || err}`, kind: 'error' });
     }
   }
 
@@ -718,6 +791,7 @@
     let onboardClose = null;
     let coachEl = null;
     let templateEl = null;
+    let reuseEl = null;
 
     // Per-action accents, shared by the CSS below and the toolbar's inline
     // icon strokes so a button's ring and its icon never drift apart.
@@ -806,11 +880,11 @@
       .coach .cat-note { font-size: 12.5px; opacity: .85; margin: 2px 0 0 14px; }
       .coach .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; display: inline-block; margin-top: 2px; }
 
-      .coach .acts, .template .acts { display: flex; gap: 6px; margin-top: 14px; }
-      .coach .acts button, .template .acts button { all: unset; cursor: pointer; font: inherit; font-size: 12px;
+      .coach .acts, .template .acts, .reuse .acts { display: flex; gap: 6px; margin-top: 14px; }
+      .coach .acts button, .template .acts button, .reuse .acts button { all: unset; cursor: pointer; font: inherit; font-size: 12px;
                              padding: 5px 10px; border-radius: 6px; }
-      .coach .acts .primary, .template .acts .primary { background: #4f46e5; color: #fff; }
-      .coach .acts .secondary, .template .acts .secondary { color: inherit; text-decoration: underline; padding: 5px 2px; }
+      .coach .acts .primary, .template .acts .primary, .reuse .acts .primary { background: #4f46e5; color: #fff; }
+      .coach .acts .secondary, .template .acts .secondary, .reuse .acts .secondary { color: inherit; text-decoration: underline; padding: 5px 2px; }
 
       .template .template-preview { font-size: 13px; line-height: 1.9; margin: 0 0 8px;
                            max-height: 30vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -820,17 +894,40 @@
       .template .template-hint { font-size: 12px; color: #6b7280; margin-bottom: 14px; }
       .template .template-name-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase;
                               letter-spacing: .04em; color: #6b7280; margin-bottom: 6px; }
-      .template .template-name { all: unset; box-sizing: border-box; width: 100%; font: inherit; font-size: 13px;
-                        padding: 7px 9px; border: 1px solid #d8dbe2; border-radius: 6px; background: #fff; color: #111827; }
-      .template .template-name:focus { border-color: #C9B896; box-shadow: 0 0 0 2px rgba(201,184,150,.35); }
+      .template .template-name, .reuse .reuse-search { all: unset; box-sizing: border-box; width: 100%; font: inherit;
+                        font-size: 13px; padding: 7px 9px; border: 1px solid #d8dbe2; border-radius: 6px;
+                        background: #fff; color: #111827; }
+      .template .template-name:focus, .reuse .reuse-search:focus { border-color: #C9B896; box-shadow: 0 0 0 2px rgba(201,184,150,.35); }
+
+      .reuse { width: min(360px, 90vw); }
+      .reuse .reuse-search { margin-bottom: 10px; }
+      .reuse .reuse-list { display: flex; flex-direction: column; gap: 2px; max-height: 40vh; overflow: auto; }
+      .reuse .reuse-row { all: unset; display: flex; align-items: center; gap: 8px; cursor: pointer;
+                           padding: 7px 6px; border-radius: 6px; text-align: left; width: 100%; box-sizing: border-box; }
+      .reuse .reuse-row:hover { background: rgba(201,184,150,.18); }
+      .reuse .reuse-row-info { min-width: 0; flex: 1; }
+      .reuse .reuse-row-name { display: block; font-weight: 700; font-size: 13px; }
+      .reuse .reuse-row-preview { display: block; font-size: 12px; color: #6b7280; overflow: hidden;
+                                    text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+      .reuse .reuse-row-meta { display: block; font-size: 11px; color: #6b7280; margin-top: 2px; }
+      .reuse .reuse-empty { font-size: 12.5px; color: #6b7280; padding: 8px 2px; }
+      .reuse .fill-back { all: unset; cursor: pointer; font-size: 12px; color: #6b7280; text-decoration: underline;
+                           margin-bottom: 8px; display: inline-block; }
+      .reuse .fill-name { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+      .reuse .fill-text { font-size: 13px; line-height: 2; max-height: 30vh; overflow: auto;
+                           white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 4px; }
+      .reuse .fill-input { all: unset; min-width: 64px; border-bottom: 1.5px dashed #C9B896; font: inherit;
+                            color: inherit; padding: 0 2px; }
+      .reuse .fill-input:focus { background: rgba(201,184,150,.18); }
 
       @media (prefers-color-scheme: dark) {
         .card { background: #1f2937; color: #f3f4f6; border-color: #374151; }
         .card.error { background: #3f1d1d; color: #fecaca; border-color: #7f1d1d; }
         .card.warn  { background: #422006; color: #fde68a; border-color: #78350f; }
         .card.ok    { background: #052e16; color: #bbf7d0; border-color: #14532d; }
-        .panel .head, .onboard .head, .onboard .note, .panel-eyebrow, .template .template-hint { color: #9ca3af; }
-        .template .template-name { background: #111827; color: #f3f4f6; border-color: #4b5563; }
+        .panel .head, .onboard .head, .onboard .note, .panel-eyebrow, .template .template-hint,
+        .reuse .reuse-row-preview, .reuse .reuse-row-meta, .reuse .fill-back { color: #9ca3af; }
+        .template .template-name, .reuse .reuse-search { background: #111827; color: #f3f4f6; border-color: #4b5563; }
         .onboard input { background: #111827; color: #f3f4f6; border-color: #4b5563; }
         .onboard li img { border-color: #4b5563; }
         .onboard .status.busy { color: #d1d5db; }
@@ -1192,6 +1289,153 @@
       templateEl = null;
     }
 
+    /** A one-line preview of a template's text, truncated to a sensible length for a list row. */
+    function previewOf(text) {
+      const flat = text.trim().replace(/\s+/g, ' ');
+      return flat.length > 60 ? flat.slice(0, 60) + '…' : flat;
+    }
+
+    /**
+     * A short "how long ago" string. Duplicates options.js's own relativeTime
+     * rather than sharing it — a content script imports no module, so this
+     * one small function is the cheaper price versus a message round trip
+     * just to format a timestamp.
+     */
+    function relativeTime(ts) {
+      const mins = Math.round((Date.now() - ts) / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins} min ago`;
+      const hours = Math.round(mins / 60);
+      return `${hours} h ago`;
+    }
+
+    /**
+     * Render a template's text into `container` with each field replaced by
+     * an inline input (never a static [Label] placeholder while editing —
+     * that only appears in the final inserted text, from fillTemplate, for
+     * whichever fields are left empty). Two fields sharing a label share a
+     * live value: typing in one updates the other, matching fillTemplate's
+     * own values-by-label contract. Returns the live values object the
+     * inputs write into, read once when Insert into page is clicked.
+     */
+    function renderFillIn(container, template) {
+      container.replaceChildren();
+      const fields = [...template.fields].sort((a, b) => a.start - b.start);
+      const values = {};
+      const inputsByLabel = {};
+      let cursor = 0;
+      for (const field of fields) {
+        if (field.start > cursor) container.appendChild(document.createTextNode(template.text.slice(cursor, field.start)));
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'fill-input';
+        input.placeholder = field.label;
+        input.size = Math.max(4, field.label.length);
+        input.addEventListener('input', () => {
+          values[field.label] = input.value;
+          for (const other of inputsByLabel[field.label]) {
+            if (other !== input) other.value = input.value;
+          }
+        });
+        (inputsByLabel[field.label] ||= []).push(input);
+        container.appendChild(input);
+        cursor = field.end;
+      }
+      if (cursor < template.text.length) container.appendChild(document.createTextNode(template.text.slice(cursor)));
+      return values;
+    }
+
+    /**
+     * The Reuse library panel: a search-filtered list of #15's templates —
+     * name, text preview, last used — and, once one is picked, a fill-in
+     * view right there in the same panel with an inline input per blank.
+     * Insert into page hands the filled text to `onInsert`; Reuse makes no
+     * provider call anywhere in this flow.
+     */
+    function reusePanel({ rect, templates, onInsert, onDismiss }) {
+      hideReusePanel();
+      const r = ensure();
+      let query = '';
+
+      reuseEl = document.createElement('div');
+      reuseEl.className = 'card reuse';
+      reuseEl.innerHTML = '<div class="panel-eyebrow"></div><div class="reuse-body"></div>';
+      reuseEl.querySelector('.panel-eyebrow').textContent = `${PRODUCT} — Reuse a template`;
+      const body = reuseEl.querySelector('.reuse-body');
+
+      const matches = (t) => !query || t.name.toLowerCase().includes(query) || t.text.toLowerCase().includes(query);
+
+      function renderRows(list) {
+        list.replaceChildren();
+        const filtered = templates.filter(matches);
+        if (!filtered.length) {
+          const empty = document.createElement('div');
+          empty.className = 'reuse-empty';
+          empty.textContent = templates.length
+            ? 'No templates match your search.'
+            : 'No saved templates yet — use the Template action on a piece of fixed text to create one.';
+          list.appendChild(empty);
+          return;
+        }
+        for (const t of filtered) {
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'reuse-row';
+          row.innerHTML =
+            '<div class="reuse-row-info">' +
+            '<span class="reuse-row-name"></span>' +
+            '<span class="reuse-row-preview"></span>' +
+            '<span class="reuse-row-meta"></span>' +
+            '</div>';
+          row.querySelector('.reuse-row-name').textContent = t.name;
+          row.querySelector('.reuse-row-preview').textContent = previewOf(t.text);
+          row.querySelector('.reuse-row-meta').textContent = t.lastUsedAt ? `Last used ${relativeTime(t.lastUsedAt)}` : 'Not used yet';
+          row.addEventListener('click', () => renderFill(t));
+          list.appendChild(row);
+        }
+      }
+
+      function renderList() {
+        body.innerHTML =
+          '<input type="text" class="reuse-search" placeholder="Search templates…">' +
+          '<div class="reuse-list"></div>' +
+          '<div class="acts"><button type="button" class="secondary">Close</button></div>';
+        const search = body.querySelector('.reuse-search');
+        const list = body.querySelector('.reuse-list');
+        search.value = query;
+        // Only the rows re-render on each keystroke — rebuilding the search
+        // input itself here would drop focus and the cursor position.
+        search.addEventListener('input', () => {
+          query = search.value.trim().toLowerCase();
+          renderRows(list);
+        });
+        renderRows(list);
+        body.querySelector('.secondary').addEventListener('click', onDismiss);
+        search.focus();
+      }
+
+      function renderFill(template) {
+        body.innerHTML =
+          '<button type="button" class="fill-back">← Back to your templates</button>' +
+          '<div class="fill-name"></div>' +
+          '<div class="fill-text"></div>' +
+          '<div class="acts"><button type="button" class="primary">Insert into page</button></div>';
+        body.querySelector('.fill-name').textContent = template.name;
+        body.querySelector('.fill-back').addEventListener('click', renderList);
+        const values = renderFillIn(body.querySelector('.fill-text'), template);
+        body.querySelector('.primary').addEventListener('click', () => onInsert(template, values));
+      }
+
+      renderList();
+      r.layer.appendChild(reuseEl);
+      place(reuseEl, rect, 8);
+    }
+
+    function hideReusePanel() {
+      reuseEl?.remove();
+      reuseEl = null;
+    }
+
     /**
      * The onboarding panel: the why line, the numbered steps (each with a
      * screenshot slot that shows only once its image has loaded), Get your
@@ -1333,6 +1577,15 @@
         icon: '<rect x="4" y="3" width="12" height="14" rx="1.5"/><path d="M7 7.5h6" stroke-dasharray="1.6 1.6"/><path d="M7 10.5h6" stroke-dasharray="1.6 1.6"/><path d="M7 13.5h3.5" stroke-dasharray="1.6 1.6"/>',
         accent: SAND
       });
+      // Editable-only by construction, same as Template above: this toolbar
+      // never renders at all for a read-only selection, so Reuse needs no
+      // extra hide/disable logic of its own to stay off read-only text.
+      const reuse = toolbarButton({
+        label: 'Reuse',
+        title: 'Reuse — pick a saved template',
+        icon: '<rect x="6" y="2.5" width="10.5" height="13" rx="1.3"/><path d="M3.5 6v10.5a1.3 1.3 0 001.3 1.3H13"/>',
+        accent: SAND
+      });
 
       // Do not let the click steal the selection out from under us.
       barEl.addEventListener('mousedown', (e) => e.preventDefault());
@@ -1340,8 +1593,9 @@
       tr.addEventListener('click', () => run('translate'));
       coach.addEventListener('click', () => run('coach'));
       template.addEventListener('click', () => run('template'));
+      reuse.addEventListener('click', () => run('reuse'));
 
-      barEl.append(fix, tr, coach, template);
+      barEl.append(fix, tr, coach, template, reuse);
       r.layer.appendChild(barEl);
       place(barEl, rect, 6);
     }
@@ -1356,7 +1610,8 @@
       bubble, hideBubble, flash, result, hidePanel, showToolbar, hideToolbar,
       onboarding, onboardingStatus, hideOnboarding,
       coachPanel, hideCoachPanel,
-      templatePanel, hideTemplatePanel
+      templatePanel, hideTemplatePanel,
+      reusePanel, hideReusePanel
     };
   })();
 
@@ -1406,7 +1661,7 @@
   document.addEventListener('scroll', () => { UI.hideToolbar(); UI.hideBubble(); }, true);
   window.addEventListener('blur', () => UI.hideToolbar());
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); UI.hideOnboarding(); UI.hideCoachPanel(); UI.hideTemplatePanel(); }
+    if (e.key === 'Escape') { UI.hideToolbar(); UI.hideBubble(); UI.hidePanel(); UI.hideOnboarding(); UI.hideCoachPanel(); UI.hideTemplatePanel(); UI.hideReusePanel(); }
   }, true);
 
   /* ============================================================= messaging */

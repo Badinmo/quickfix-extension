@@ -65,7 +65,7 @@ function check(name, pass, detail) {
 </script>
 
 <script type="module">
-import { saveTemplate, listTemplates, deleteTemplate, renameTemplate, fillTemplate, MAX_TEMPLATES } from '../lib/templates.js';
+import { saveTemplate, listTemplates, deleteTemplate, renameTemplate, recordTemplateUse, fillTemplate, MAX_TEMPLATES } from '../lib/templates.js';
 
 /** A field spanning the first occurrence of `needle` in `text`, so fixtures never rely on hand-counted offsets. */
 function at(text, needle, label) {
@@ -92,6 +92,7 @@ async function main() {
   check('listTemplates sees the saved template', list.length === 1 && list[0].name === 'Order follow-up email',
     `list = ${JSON.stringify(list)}`);
   check('the saved template kept its fields', list[0].fields.length === 3, `fields = ${JSON.stringify(list[0].fields)}`);
+  check('a newly saved template has no lastUsedAt yet', t1.lastUsedAt === null, `lastUsedAt = ${t1.lastUsedAt}`);
 
   // 2 — a second, independent template.
   const text2 = 'Hi Amy, something has come up and I need to move Tuesday.';
@@ -123,6 +124,16 @@ async function main() {
   list = await listTemplates();
   check('deleteTemplate removes only the targeted template',
     list.length === 1 && list[0].id === t1.id, `list = ${JSON.stringify(list)}`);
+
+  // 4b — recordTemplateUse (#18): sets lastUsedAt for the "last used" display, never throws on an id that's gone.
+  await recordTemplateUse(t1.id);
+  list = await listTemplates();
+  check('recordTemplateUse sets lastUsedAt on the targeted template',
+    typeof list[0].lastUsedAt === 'number', `lastUsedAt = ${list[0].lastUsedAt}`);
+
+  let useErr = null;
+  try { await recordTemplateUse('no-such-id'); } catch (e) { useErr = e; }
+  check('recordTemplateUse on a template that no longer exists does not throw', !useErr, String(useErr));
 
   // 5 — fill: every field given a value.
   const filledFull = fillTemplate(list[0], { Name: 'Priya', 'Order number': 'ORD9999', Date: '9 September' });

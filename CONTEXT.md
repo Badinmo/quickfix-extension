@@ -25,8 +25,8 @@ _Avoid_: private, secure, local (those mean different things; see On-device mode
 ## Actions and text
 
 **Action**:
-One of the operations a user can run on a selection. Today: grammar, translate, Coach and
-Template.
+One of the operations a user can run on a selection. Today: grammar, translate, Coach, Template
+and Reuse.
 _Avoid_: command, feature, mode, tool
 
 **Selection**:
@@ -51,11 +51,10 @@ _Avoid_: feedback, review, grade, score, IELTS, band
 **Template**:
 The action that marks which parts of an already-fixed selection are likely to change the next
 time it's reused, then saves it (name, original text and confirmed fields) via `lib/templates.js`
-(#15) for Reuse, a later action, to fill in. Suggests Fields as toggleable chips over the text;
-the user corrects the suggestion by clicking any word, then confirms a suggested-but-editable
-name. Never rewrites the text — the result's `text` is always identical to the input — and
-unavailable on a Read-only selection, the same as it never renders in the Toolbar there in the
-first place.
+(#15) for Reuse to fill in later. Suggests Fields as toggleable chips over the text; the user
+corrects the suggestion by clicking any word, then confirms a suggested-but-editable name. Never
+rewrites the text — the result's `text` is always identical to the input — and unavailable on a
+Read-only selection, the same as it never renders in the Toolbar there in the first place.
 _Avoid_: snippet, macro, boilerplate
 
 **Field**:
@@ -64,6 +63,19 @@ and, once filled, replaced with a real value or left as a visible `[Label]` plac
 (`lib/templates.js`'s `fillTemplate`). Distinct from Coach's `spans`: a Field is something the user
 confirms and later fills in, not just a spot a note points to.
 _Avoid_: variable, placeholder, blank, token
+
+**Reuse**:
+The action that opens a small library of saved templates (search by name or text, each row
+showing its name, a preview and when it was last used), lets the user fill in a picked template's
+Fields right there in the picker — a Field left empty keeps its `[Label]` placeholder rather than
+blocking — and writes the result in with Insert into page. Makes no provider call anywhere in the
+flow: pure local lookup and substitution through `lib/templates.js`'s (#15) `listTemplates` and
+`fillTemplate`. Insert into page is not its own write path — it is the same
+`replaceInInput`/`replaceInEditable` and staleness check Fix and Translate use, so it inherits
+every guarantee they already have (undo, a changed field aborting the write, single-line inputs
+collapsing newlines) for free. The Options page's Templates section (list, search, rename,
+delete) manages the same collection in a more spacious place.
+_Avoid_: recall, load, apply, import
 
 **Whole-field fallback**:
 With nothing selected in an `<input>` or `<textarea>`, an action operates on the whole field.

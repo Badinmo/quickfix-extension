@@ -133,11 +133,11 @@ If a page steals `Alt+G`/`Alt+T`, rebind them at `edge://extensions/shortcuts` o
 Five harnesses in `test/`, in increasing order of realism.
 
 **`smoke-test.html` — run this after touching `content.js`.** It loads the content script into a
-normal page against a stubbed `chrome.*` API, then drives it through 121 assertions: whole-field
+normal page against a stubbed `chrome.*` API, then drives it through 144 assertions: whole-field
 rewrite, partial selection, newline collapsing in single-line inputs, whitespace preservation,
 contenteditable replacement with a quoted thread that must stay untouched, refusing to act on a
 contenteditable with no selection, aborting when the field changes mid-request, the floating
-toolbar (now a circular Fix/Translate/Coach/Template cluster), read-only selections, the
+toolbar (now a circular Fix/Translate/Coach/Template/Reuse cluster), read-only selections, the
 never-stuck rules — Cancel at 5 s, the 20 s hard stop, a bubble with Retry (and Open settings for
 key/model codes) for every failure code, bubble dismissal, the indicator setting, the on-device
 label and stale-reply dropping — the onboarding panel: a `NO_API_KEY` reply opens it (no bubble,
@@ -150,13 +150,19 @@ order with a strength signal and note each, marks a spot a note points to in the
 "Fix these for me" hands off to Fix on the same captured target, "Got it" dismisses untouched,
 a non-English selection ends in the same plain bubble any other failure code would, and Coach
 follows the exact same no-key/read-only/staleness/Escape handling as Fix and Translate, with no
-special-casing — and Template (#17): the preview pre-toggles Gemini's suggested fields as chips
+special-casing — Template (#17): the preview pre-toggles Gemini's suggested fields as chips
 snapped to whole words, clicking any word marks or unmarks it as a field with no further provider
 call, Save sends the confirmed fields and the untouched original text to `lib/templates.js` via
 the worker, Cancel saves nothing, and it is refused outright (no provider call at all) on a
-read-only selection, on top of never rendering there in the first place. Time is faked the same
-way as in the provider harness, so the 5 s and 20 s cases run in milliseconds. No API key or
-network needed. Open it in a browser, or headless:
+read-only selection, on top of never rendering there in the first place — and Reuse (#18): the
+library panel lists `lib/templates.js`'s saved templates, search filters by name and by text
+client-side, picking one renders an inline input per field, and Insert into page — proven to run
+through the very same staleness check Fix/Translate use, not a lookalike of it — writes an
+unfilled field's `[Label]` placeholder straight through rather than blocking; no provider call is
+made anywhere in that flow, checked both at runtime (no `QF_AI` message ever sent) and, the same
+way #15's own "no fetch" check works, as a static read of the reuse code's own source. Time is
+faked the same way as in the provider harness, so the 5 s and 20 s cases run in milliseconds. No
+API key or network needed. Open it in a browser, or headless:
 
 ```powershell
 & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
@@ -211,18 +217,20 @@ command as above with `provider-test.html` in place of `smoke-test.html` (and
 
 **`templates-test.html` — run this after touching `lib/templates.js`.** It loads the template
 storage module as a real ES module against a stubbed `chrome.storage.local`, then checks save,
-list, delete and rename round-tripping; filling a template (every field given a value, none
-given, and a partial mix), including that an unfilled field shows a `[Label]` placeholder and
-never replays the example value the template was saved with; renaming a template that no longer
-exists; the `MAX_TEMPLATES` cap throwing a plain error (not a provider error code) and leaving
-storage unchanged; and a static source check that the module makes no `fetch` call and does not
-import from `lib/ai.js`. 16 assertions, no fake time needed. Same headless command as above with
-`templates-test.html` in place of `smoke-test.html`.
+list, delete and rename round-tripping; a newly saved template's `lastUsedAt` starting `null` and
+`recordTemplateUse` (#18) setting it, without throwing for an id that's gone; filling a template
+(every field given a value, none given, and a partial mix), including that an unfilled field
+shows a `[Label]` placeholder and never replays the example value the template was saved with;
+renaming a template that no longer exists; the `MAX_TEMPLATES` cap throwing a plain error (not a
+provider error code) and leaving storage unchanged; and a static source check that the module
+makes no `fetch` call and does not import from `lib/ai.js`. 19 assertions, no fake time needed.
+Same headless command as above with `templates-test.html` in place of `smoke-test.html`.
 
 The options page has no harness by design (spec: checked by hand). After touching `options/`,
 open it from the extension card and walk the key section: paste a key and watch the
 checking → working / failed line, press Test with the network off to see Cancel at 5 s and the
-"took too long" line at 20 s.
+"took too long" line at 20 s. After touching the Templates section (#18), check search, rename
+(Enter/blur saves, Escape cancels) and delete against a few saved templates.
 
 **`playground.html` — the real extension, on a real page.** A textarea, a single-line input, a
 contenteditable with a quoted thread, a same-origin iframe, an open shadow root and read-only
@@ -245,7 +253,7 @@ by hand.
 ```
 manifest.json              MV3, content script in all frames, Alt+G / Alt+T commands
 background/
-  service-worker.js        commands + context menu, routes actions, calls Gemini
+  service-worker.js        commands + context menu, routes actions, calls Gemini, saves/lists/fills templates
 content/
   content.js               capture selection → send → replace inline; toolbar & indicator UI
 lib/
@@ -256,17 +264,17 @@ lib/
   on-device-offscreen.js   the service worker's half of the offscreen bridge (Chrome only — see below)
   never-stuck.js           the 5 s Cancel / 20 s hard-stop rules as a module, for extension pages
   onboarding.js            key onboarding copy: why line, numbered steps, one-key note, key page URL
-  templates.js             local template storage: save/list/delete/rename/fill, no network, no AI
+  templates.js             local template storage: save/list/delete/rename/fill/record-use, no network, no AI
 offscreen/
   on-device.html/.js       invisible document that runs Translator/LanguageDetector for the worker on Chrome
 images/                    optional onboarding-N.png screenshots, one per step (see below)
 options/                   settings page
 popup/                     toolbar popup: status, quick language switch, link to settings
 test/
-  smoke-test.html          drives content.js against a stubbed chrome API, with fake time (121 assertions)
+  smoke-test.html          drives content.js against a stubbed chrome API, with fake time (144 assertions)
   provider-test.html       drives lib/ai.js, lib/on-device.js and lib/never-stuck.js against stubbed
                            fetch + storage + Translator/LanguageDetector, with fake time (238 assertions)
-  templates-test.html      drives lib/templates.js against a stubbed chrome.storage.local (16 assertions)
+  templates-test.html      drives lib/templates.js against a stubbed chrome.storage.local (19 assertions)
   syntax-check.html        parse-checks every JS file
   playground.html          live test page: fields, iframe, shadow DOM, event log
 tools/

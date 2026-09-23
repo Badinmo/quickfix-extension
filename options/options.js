@@ -2,6 +2,7 @@ import { DEFAULTS, MODELS, TONES, LANGUAGES, getSettings, saveSettings, recommen
 import { KEY_PAGE_URL, WHY_LINE, STEPS, ONE_KEY_NOTE, SUCCESS_LINE } from '../lib/onboarding.js';
 import { runNeverStuck } from '../lib/never-stuck.js';
 import { downloadOnDeviceLanguage, hasConsent, addConsent } from '../lib/on-device.js';
+import { listTemplates, renameTemplate, deleteTemplate } from '../lib/templates.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -550,3 +551,105 @@ $('shortcuts').addEventListener('click', () => {
     url: isEdge ? 'edge://extensions/shortcuts' : 'chrome://extensions/shortcuts'
   });
 });
+
+/* ------------------------------------------------------------ templates */
+
+// The Templates section (#18): the same #15 interface Reuse's in-page picker
+// uses (list/rename/delete), in a more spacious place for managing the full
+// collection. This page is a module script, so it imports lib/templates.js
+// directly — no message round trip through the background needed here.
+
+let allTemplates = [];
+
+function previewOf(text) {
+  const flat = text.trim().replace(/\s+/g, ' ');
+  return flat.length > 80 ? flat.slice(0, 80) + '…' : flat;
+}
+
+function matchesQuery(template, query) {
+  if (!query) return true;
+  return template.name.toLowerCase().includes(query) || template.text.toLowerCase().includes(query);
+}
+
+function templateRow(template) {
+  const li = document.createElement('li');
+  li.className = 'template-row';
+
+  const info = document.createElement('div');
+  info.className = 'template-info';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'template-name';
+  nameEl.textContent = template.name;
+  const previewEl = document.createElement('span');
+  previewEl.className = 'template-preview';
+  previewEl.textContent = previewOf(template.text);
+  const metaEl = document.createElement('span');
+  metaEl.className = 'template-meta';
+  metaEl.textContent = template.lastUsedAt ? `Last used ${relativeTime(template.lastUsedAt)}` : 'Not used yet';
+  info.append(nameEl, previewEl, metaEl);
+
+  const renameBtn = document.createElement('button');
+  renameBtn.type = 'button';
+  renameBtn.className = 'ghost';
+  renameBtn.textContent = 'Rename';
+  renameBtn.addEventListener('click', () => startRename(nameEl, template));
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'ghost';
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.addEventListener('click', async () => {
+    await deleteTemplate(template.id);
+    await loadTemplates();
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'template-actions';
+  actions.append(renameBtn, deleteBtn);
+
+  li.append(info, actions);
+  return li;
+}
+
+/** Swap a template's name for an inline text input; Enter/blur saves, Escape cancels — both just re-render. */
+function startRename(nameEl, template) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'template-rename-input';
+  input.value = template.name;
+  const finish = async (save) => {
+    const name = input.value.trim();
+    if (save && name && name !== template.name) {
+      await renameTemplate(template.id, name);
+      await loadTemplates();
+    } else {
+      renderTemplates();
+    }
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function renderTemplates() {
+  const query = $('templateSearch').value.trim().toLowerCase();
+  const filtered = allTemplates.filter((t) => matchesQuery(t, query));
+  $('templateList').replaceChildren(...filtered.map(templateRow));
+  $('templateEmpty').hidden = filtered.length > 0;
+  $('templateEmpty').textContent = allTemplates.length
+    ? 'No templates match your search.'
+    : 'No saved templates yet — use the Template action on a piece of fixed text to create one.';
+}
+
+async function loadTemplates() {
+  allTemplates = await listTemplates();
+  renderTemplates();
+}
+
+$('templateSearch').addEventListener('input', renderTemplates);
+loadTemplates();

@@ -108,6 +108,12 @@ window.__validateReply = { ok: true };
 window.__validateDelay = 0;
 // What the worker answers QF_SAVE_TEMPLATE with — read at send time, like the others.
 window.__saveTemplateReply = { ok: true };
+// Reuse (#18): the fixture templates QF_LIST_TEMPLATES answers with, and an
+// override for QF_LIST_TEMPLATES/QF_FILL_TEMPLATE's own reply when a case
+// needs a failure instead of the real (stubbed) list/fill behaviour below.
+window.__templates = [];
+window.__listTemplatesReply = null;
+window.__fillTemplateReply = null;
 
 window.chrome = {
   runtime: {
@@ -126,6 +132,26 @@ window.chrome = {
         }
         if (msg.type === 'QF_SAVE_TEMPLATE') {
           return resolve(window.__saveTemplateReply);
+        }
+        if (msg.type === 'QF_LIST_TEMPLATES') {
+          return resolve(window.__listTemplatesReply || { ok: true, templates: window.__templates });
+        }
+        if (msg.type === 'QF_FILL_TEMPLATE') {
+          if (window.__fillTemplateReply) return resolve(window.__fillTemplateReply);
+          // Mirrors lib/templates.js's real fillTemplate (already covered end to
+          // end in templates-test.html) so this stub's behaviour matches production.
+          const { template, values } = msg;
+          const fields = [...template.fields].sort((a, b) => a.start - b.start);
+          let out = '';
+          let cursor = 0;
+          for (const f of fields) {
+            out += template.text.slice(cursor, f.start);
+            const v = values[f.label];
+            out += typeof v === 'string' && v ? v : `[${f.label}]`;
+            cursor = f.end;
+          }
+          out += template.text.slice(cursor);
+          return resolve({ ok: true, text: out });
         }
         if (msg.type !== 'QF_AI') return resolve({ ok: true });
         const reply = window.__reply === null ? null : { id: msg.id, ...window.__reply };
@@ -1006,6 +1032,199 @@ async function main() {
   check('template: the panel is open before Escape', !!tplPanelEl());
   escape();
   check('template: Escape closes the panel', !tplPanelEl());
+
+  /* -------------------------------------------------------------- reuse */
+
+  const reuseAt = (text, needle, label) => {
+    const start = text.indexOf(needle);
+    return { start, end: start + needle.length, label };
+  };
+  const reuseText1 = 'Dear Amy, thank you for your patience regarding ORD1234 placed on 3 March.';
+  const reuseTemplate1 = {
+    id: 'r1',
+    name: 'Order follow-up email',
+    text: reuseText1,
+    fields: [reuseAt(reuseText1, 'Amy', 'Name'), reuseAt(reuseText1, 'ORD1234', 'Order number'), reuseAt(reuseText1, '3 March', 'Date')],
+    lastUsedAt: null
+  };
+  const reuseText2 = 'Hi Amy, something has come up and I need to move Tuesday.';
+  const reuseTemplate2 = {
+    id: 'r2',
+    name: 'Meeting reschedule note',
+    text: reuseText2,
+    fields: [reuseAt(reuseText2, 'Amy', 'Name'), reuseAt(reuseText2, 'Tuesday', 'Meeting')],
+    lastUsedAt: Date.now() - 60000
+  };
+  const reusePanelEl = () => [...(shadow()?.querySelectorAll('.card') || [])].find((c) => c.classList.contains('reuse')) || null;
+
+  // 50 — the toolbar carries a fifth, Reuse circle.
+  getSelection().removeAllRanges();
+  ta.value = 'toolbar check text 3';
+  ta.focus();
+  ta.setSelectionRange(0, 5);
+  ta.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+  await wait(400);
+  const barWithReuse = shadow()?.querySelector('.bar');
+  check('toolbar offers Reuse alongside Fix, Translate, Coach and Template',
+    !!barWithReuse && /Reuse/.test(barWithReuse.textContent), `toolbar = ${JSON.stringify(barWithReuse?.textContent)}`);
+
+  // 51 — Reuse opens a library panel listing #15's templates, with no
+  // provider call anywhere in that (or the rest of this section's) flow.
+  window.__templates = [reuseTemplate1, reuseTemplate2];
+  window.__sent = [];
+  ta.value = 'text to reuse into';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  invoke('reuse');
+  await wait(100);
+  let rp = reusePanelEl();
+  check('reuse: the panel opens listing the saved templates', !!rp, shadowText());
+  check('reuse: shows both templates by name',
+    /Order follow-up email/.test(rp?.textContent || '') && /Meeting reschedule note/.test(rp?.textContent || ''),
+    rp?.textContent);
+  check('reuse: opening the library makes no provider call',
+    window.__sent.every((m) => m.type !== 'QF_AI'), JSON.stringify(window.__sent));
+
+  // 52 — search filters by name and by text content, client-side.
+  const reuseSearch = () => rp.querySelector('.reuse-search');
+  reuseSearch().value = 'Tuesday';
+  reuseSearch().dispatchEvent(new Event('input', { bubbles: true }));
+  check('reuse: search filters the list by text content',
+    !/Order follow-up email/.test(rp.querySelector('.reuse-list').textContent) &&
+    /Meeting reschedule note/.test(rp.querySelector('.reuse-list').textContent),
+    rp.querySelector('.reuse-list').textContent);
+  reuseSearch().value = '';
+  reuseSearch().dispatchEvent(new Event('input', { bubbles: true }));
+
+  // 53 — picking a template shows an inline fill-in input for each field.
+  let rows = [...rp.querySelectorAll('.reuse-row')];
+  rows.find((r) => r.textContent.includes('Order follow-up email')).click();
+  let fillInputs = [...rp.querySelectorAll('.fill-input')];
+  check('reuse: picking a template shows an inline input for each of its fields', fillInputs.length === 3, fillInputs.length);
+
+  // 54 — leaving a field empty and inserting anyway keeps its placeholder
+  // visible in the inserted text; still no provider call anywhere.
+  const nameInput = fillInputs.find((i) => i.placeholder === 'Name');
+  nameInput.value = 'Priya';
+  nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+  const orderInput = fillInputs.find((i) => i.placeholder === 'Order number');
+  orderInput.value = 'ORD9999';
+  orderInput.dispatchEvent(new Event('input', { bubbles: true }));
+  // Date is deliberately left empty.
+  window.__sent = [];
+  buttonNamed('Insert into page')?.click();
+  await wait(100);
+  check('reuse: Insert into page writes the filled text, with the unfilled field left as a visible placeholder',
+    ta.value === 'Dear Priya, thank you for your patience regarding ORD9999 placed on [Date].', ta.value);
+  check('reuse: the panel closes once the text is inserted', !reusePanelEl());
+  check('reuse: still no provider call anywhere in the fill-and-insert flow',
+    window.__sent.every((m) => m.type !== 'QF_AI'), JSON.stringify(window.__sent));
+
+  // 55 — wiring proof: Insert into page goes through the exact same
+  // staleness check Fix/Translate use, not a lookalike of its own. That
+  // check lives only inside assertStillFresh/replaceInInput, so a refusal
+  // here is direct evidence the same write path ran, not a duplicate test.
+  ta.value = 'stale text for reuse insert';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  window.__lastSent = null;
+  invoke('reuse');
+  await wait(100);
+  rp = reusePanelEl();
+  rows = [...rp.querySelectorAll('.reuse-row')];
+  rows.find((r) => r.textContent.includes('Meeting reschedule note')).click();
+  ta.value = 'the field changed before insert was clicked'; // the page, not Reuse, changes the field
+  buttonNamed('Insert into page')?.click();
+  await wait(100);
+  check('reuse: Insert into page is refused by the same staleness check Fix/Translate use',
+    /changed while/i.test(shadowText()), shadowText());
+
+  // 56 — Close dismisses the panel without inserting anything.
+  ta.value = 'text before close';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  window.__sent = [];
+  invoke('reuse');
+  await wait(100);
+  rp = reusePanelEl();
+  buttonNamed('Close')?.click();
+  check('reuse: Close dismisses the panel without inserting anything',
+    !reusePanelEl() && ta.value === 'text before close');
+
+  // 57 — unavailable on a read-only selection: refused before any provider call.
+  ta.blur();
+  getSelection().removeAllRanges();
+  const reuseRo = document.createElement('p');
+  reuseRo.textContent = 'read-only text for reuse to skip';
+  document.getElementById('fixtures').appendChild(reuseRo);
+  selectIn(reuseRo.firstChild, 0, reuseRo.firstChild.length);
+  window.__sent = [];
+  invoke('reuse');
+  await wait(100);
+  check('reuse: a read-only selection is refused with no provider call',
+    !reusePanelEl() && window.__sent.length === 0 && /select text you can edit/i.test(shadowText()), shadowText());
+
+  // 58 — Escape closes the Reuse panel too.
+  ta.value = 'text for reuse escape check';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  invoke('reuse');
+  await wait(100);
+  check('reuse: the panel is open before Escape', !!reusePanelEl());
+  escape();
+  check('reuse: Escape closes the panel', !reusePanelEl());
+
+  // 59 — a new action closes an open Reuse panel, same as Coach/Template.
+  ta.value = 'text for reuse then new action';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  invoke('reuse');
+  await wait(100);
+  check('reuse: panel open before a new action starts', !!reusePanelEl());
+  window.__reply = { ok: true, text: 'NEW ACTION WON' };
+  startOnTextarea('grammar', 'panel then new action for reuse');
+  await wait(50);
+  check('reuse: a new action closes the reuse panel', !reusePanelEl());
+
+  // 60 — search also filters by name alone (52 only exercised text content).
+  window.__templates = [reuseTemplate1, reuseTemplate2];
+  window.__sent = [];
+  ta.value = 'text to reuse into, again';
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  invoke('reuse');
+  await wait(100);
+  rp = reusePanelEl();
+  rp.querySelector('.reuse-search').value = 'Order follow-up';
+  rp.querySelector('.reuse-search').dispatchEvent(new Event('input', { bubbles: true }));
+  check('reuse: search also filters the list by name alone',
+    /Order follow-up email/.test(rp.querySelector('.reuse-list').textContent) &&
+    !/Meeting reschedule note/.test(rp.querySelector('.reuse-list').textContent),
+    rp.querySelector('.reuse-list').textContent);
+  escape();
+
+  // 61 — static check (#18): the same structural proof #15's "no fetch"
+  // check uses, not just a runtime "nothing happened to fire" observation —
+  // read the source once and confirm Reuse's two code regions (the
+  // list/fill/insert flow, and the panel/fill-in UI) never send 'QF_AI'.
+  const reuseBranchSrc = src.slice(
+    src.indexOf('Reuse (#18) makes no provider call'),
+    src.indexOf('const { lead, core, trail }')
+  );
+  const reuseFlowSrc = src.slice(
+    src.indexOf('=============================================================== reuse'),
+    src.indexOf('Leave the working states')
+  );
+  const reuseUiSrc = src.slice(
+    src.indexOf("A one-line preview of a template's text"),
+    src.indexOf('The onboarding panel: the why line')
+  );
+  check('reuse: the run()/execute() dispatch for \'reuse\' never sends QF_AI',
+    reuseBranchSrc.length > 0 && !reuseBranchSrc.includes('QF_AI'), reuseBranchSrc.length);
+  check('reuse: openReusePanel/insertTemplate never send QF_AI',
+    reuseFlowSrc.length > 0 && !reuseFlowSrc.includes('QF_AI'), reuseFlowSrc.length);
+  check('reuse: the library/fill-in panel code never sends QF_AI',
+    reuseUiSrc.length > 0 && !reuseUiSrc.includes('QF_AI'), reuseUiSrc.length);
 
   const failed = results.filter((r) => r.startsWith('FAIL')).length;
   document.getElementById('out').textContent =

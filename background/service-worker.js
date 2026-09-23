@@ -15,7 +15,7 @@ import { getSettings, saveSettings } from '../lib/config.js';
 import { runAction, listModels, validateKey, AiError } from '../lib/ai.js';
 import { onDeviceStatus } from '../lib/on-device.js';
 import { KEY_PAGE_URL, WHY_LINE, STEPS, ONE_KEY_NOTE, SUCCESS_LINE } from '../lib/onboarding.js';
-import { saveTemplate } from '../lib/templates.js';
+import { saveTemplate, listTemplates, fillTemplate, recordTemplateUse } from '../lib/templates.js';
 
 const MENU_ROOT = 'qf-root';
 const MENU_GRAMMAR = 'qf-grammar';
@@ -161,6 +161,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // async
   }
 
+  // Reuse (#18): pure local lookup and substitution, no provider call —
+  // still routed through the worker for the same reason as the save above.
+  if (msg?.type === 'QF_LIST_TEMPLATES') {
+    listTemplates().then((templates) => sendResponse({ ok: true, templates }));
+    return true; // async
+  }
+
+  if (msg?.type === 'QF_FILL_TEMPLATE') {
+    handleFillTemplate(msg).then(sendResponse);
+    return true; // async
+  }
+
   return false;
 });
 
@@ -205,6 +217,19 @@ async function handleSaveTemplate(msg) {
   } catch (err) {
     return { ok: false, error: err?.message || 'Could not save the template.' };
   }
+}
+
+/**
+ * Fill a template's blanks for Reuse's "Insert into page" (#18). `fillTemplate`
+ * never throws, so this is really just handing the content script the full
+ * #15 template object it already listed rather than making it round-trip an
+ * id lookup. Recording the use is fire-and-forget: a rare later staleness
+ * abort on the page write is not worth a second message for.
+ */
+async function handleFillTemplate(msg) {
+  const text = fillTemplate(msg.template, msg.values);
+  recordTemplateUse(msg.template.id).catch(() => {});
+  return { ok: true, text };
 }
 
 /**
